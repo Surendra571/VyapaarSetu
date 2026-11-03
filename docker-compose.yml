@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: vyapaarsetu-db
+    restart: always
+    environment:
+      POSTGRES_USER: vyapaar_user
+      POSTGRES_PASSWORD: vyapaar_password
+      POSTGRES_DB: vyapaarsetu_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vyapaar_user -d vyapaarsetu_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vyapaarsetu-backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://vyapaar_user:vyapaar_password@db:5432/vyapaarsetu_db
+      - SYNC_DATABASE_URL=postgresql://vyapaar_user:vyapaar_password@db:5432/vyapaarsetu_db
+      - SECRET_KEY=development_secret_key_change_in_production_vyapaarsetu_2026
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ENVIRONMENT=development
+      - PORT=8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vyapaarsetu-frontend
+    restart: always
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000/api/v1
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  pgdata:
+
