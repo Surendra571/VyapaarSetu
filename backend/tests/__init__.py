@@ -1,2 +1,2 @@
-# Backend tests package init
+"""Backend test suite."""
 

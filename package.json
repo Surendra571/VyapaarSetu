@@ -1,0 +1,17 @@
+{
+  "name": "vyapaarsetu-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VyapaarSetu FMCG B2B Ordering Platform Monorepo",
+  "scripts": {
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "cd backend && .\\.venv\\Scripts\\uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
+    "build:frontend": "npm --prefix frontend run build",
+    "lint:frontend": "npm --prefix frontend run lint",
+    "test:backend": "cd backend && .\\.venv\\Scripts\\pytest -v",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres"
+  }
+}
+

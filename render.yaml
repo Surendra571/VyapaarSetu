@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: vyapaarsetu-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "alembic upgrade head && python -m app.seeds.demo_data && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/v1/health
+    plan: free
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "False"
+      - key: APP_NAME
+        value: VyapaarSetu
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "1440"
+      - key: ALGORITHM
+        value: HS256
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: AI_PROVIDER
+        value: auto
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: FAST2SMS_API_KEY
+        sync: false
+      - key: ALLOW_SCHEME_STACKING
+        value: "False"
+      - key: SCHEME_STACKING_POLICY
+        value: FLAG_CONFLICT_FOR_REVIEW
+      - key: STRICT_CREDIT_HOLD
+        value: "True"
+      - key: INSUFFICIENT_STOCK_POLICY
+        value: REJECT_ORDER

@@ -1,8 +1,9 @@
-# Dependencies & Environments
-.env
-.env.local
-.env.*.local
-*.env
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+dist/
+build/
 
 # Python
 __pycache__/
@@ -11,6 +12,9 @@ __pycache__/
 *.so
 .Python
 env/
+venv/
+.venv/
+ENV/
 build/
 develop-eggs/
 dist/
@@ -26,42 +30,38 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
+# Testing & Coverage
 .pytest_cache/
 .coverage
 htmlcov/
-.mypy_cache/
-.ruff_cache/
-venv/
-.venv/
+coverage/
 
-# Node & Frontend
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-.pnpm-debug.log*
-dist/
-dist-ssr/
-*.local
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# IDEs & Editors
-.idea/
+# IDE & OS
 .vscode/
+.idea/
 *.swp
 *.swo
-*~
 .DS_Store
 Thumbs.db
 
-# Database & Logs
+# Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+
+# Database & local data
+backend/pgdata/
+pgdata/
+*.sqlite
 *.sqlite3
 *.db
-pgdata/
-
-# Testing artifacts
-playwright-report/
-test-results/
+yarn-error.log*
 
