@@ -1,5 +1,6 @@
 from typing import Any, List, Union, Optional
-from pydantic import Field, field_validator
+from urllib.parse import urlparse
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -56,6 +57,36 @@ class Settings(BaseSettings):
     # Credit & Inventory Policies
     STRICT_CREDIT_HOLD: bool = True
     INSUFFICIENT_STOCK_POLICY: str = "REJECT_ORDER"  # Never silently create partial orders
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def assemble_database_url(cls, v: Any) -> str:
+        if isinstance(v, str):
+            url = v.strip()
+            # Convert standard PostgreSQL scheme prefixes to SQLAlchemy asyncpg dialect
+            if url.startswith("postgres://"):
+                url = "postgresql+asyncpg://" + url[len("postgres://"):]
+            elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
+                url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+            # Normalize sslmode to ssl for asyncpg
+            if "sslmode=require" in url:
+                url = url.replace("sslmode=require", "ssl=require")
+            return url
+        return str(v)
+
+    @model_validator(mode="after")
+    def sync_database_host_and_port(self) -> "Settings":
+        try:
+            parsed = urlparse(self.DATABASE_URL)
+            if parsed.hostname:
+                self.POSTGRES_HOST = parsed.hostname
+            if parsed.port:
+                self.POSTGRES_PORT = parsed.port
+            elif parsed.hostname and self.POSTGRES_PORT == 5432:
+                self.POSTGRES_PORT = 5432
+        except Exception:
+            pass
+        return self
 
     @field_validator("DEBUG", mode="before")
     @classmethod

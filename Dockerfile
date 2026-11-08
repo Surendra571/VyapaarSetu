@@ -56,4 +56,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://127.0.0.1:${PORT:-8000}/api/v1/health || exit 1
 
 # Apply database migrations, seed master FMCG catalogue, and launch Uvicorn on $PORT
-CMD ["sh", "-c", "alembic upgrade head && python -m app.seeds.demo_data && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["python", "-m", "app.scripts.start"]
