@@ -1801,7 +1801,27 @@ function App() {
                 </div>
               )}
               <div className="border-t border-slate-200 pt-3"><div className="flex justify-between text-sm font-extrabold text-slate-900"><span>Order total</span><span>{formatMoney(cartPreview.subtotal_excl_gst)}</span></div><p className="mt-1 text-[10px] text-slate-500">All amounts exclude GST. Final invoice from distributor.</p></div>
-              <div className={`rounded-xl p-3 text-xs leading-5 ${cartPreview.credit_check.will_trigger_credit_hold ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-900'}`}><div className="font-bold">{cartPreview.credit_check.will_trigger_credit_hold ? 'Credit hold expected' : 'Credit available'}</div><div className="mt-1">{cartPreview.credit_check.notice}</div></div>
+              <div className={`rounded-xl p-3 text-xs leading-5 ${cartPreview.credit_check.will_trigger_credit_hold ? 'border border-amber-300 bg-amber-50 text-amber-900' : 'border border-emerald-200 bg-emerald-50 text-emerald-900'}`}>
+                <div className="flex items-center justify-between font-bold">
+                  <span>Retailer Credit Summary</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] ${cartPreview.credit_check.will_trigger_credit_hold ? 'bg-amber-200 text-amber-900 font-extrabold' : 'bg-emerald-200 text-emerald-900 font-extrabold'}`}>
+                    {cartPreview.credit_check.will_trigger_credit_hold ? 'Credit hold will apply' : 'Within credit limit'}
+                  </span>
+                </div>
+                <div className="mt-2 space-y-1 text-[11px] border-t border-slate-200/60 pt-2">
+                  <div className="flex justify-between text-slate-600"><span>Credit limit:</span><span className="font-semibold text-slate-900">{formatMoney(cartPreview.credit_check.credit_limit)}</span></div>
+                  <div className="flex justify-between text-slate-600"><span>Outstanding:</span><span className="font-semibold text-slate-900">{formatMoney(cartPreview.credit_check.current_outstanding)}</span></div>
+                  <div className="flex justify-between font-bold text-slate-800"><span>Available credit:</span><span>{formatMoney(cartPreview.credit_check.available_credit)}</span></div>
+                  <div className="flex justify-between text-slate-600"><span>Current order:</span><span className="font-semibold text-slate-900">{formatMoney(cartPreview.credit_check.proposed_order_amount)}</span></div>
+                  <div className="flex justify-between font-bold border-t border-dashed border-slate-200/80 pt-1">
+                    <span>Remaining credit:</span>
+                    <span className={Number(cartPreview.credit_check.available_credit) - Number(cartPreview.credit_check.proposed_order_amount) < 0 ? 'text-rose-600 font-extrabold' : 'text-emerald-800'}>
+                      {formatMoney(Number(cartPreview.credit_check.available_credit) - Number(cartPreview.credit_check.proposed_order_amount))}
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-2 text-[10px] opacity-90">{cartPreview.credit_check.notice}</div>
+              </div>
               {cartPreview.has_insufficient_stock && <div className="rounded-xl bg-rose-50 p-3 text-xs font-semibold text-rose-800">One or more lines exceed available stock. Update quantities before placing your order.</div>}
               {cartPreview.has_scheme_conflicts && <div className="rounded-xl bg-amber-50 p-3 text-xs text-amber-900">Competing schemes require order desk review. Your order will not silently stack promotions.</div>}
             </div>}
