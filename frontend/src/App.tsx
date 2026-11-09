@@ -797,10 +797,10 @@ function App() {
       setNotice('Handwritten order image processed! Review each SKU, quantity, and unit before adding to cart.');
     } catch (photoError) {
       const msg = errorMessage(photoError);
-      if (msg.includes('500') || msg.toLowerCase().includes('failed') || msg.toLowerCase().includes('error')) {
-        setError('Could not process this image. Please upload a clear photo of a handwritten grocery order slip.');
-      } else {
+      if (msg && !msg.startsWith('Request failed (500)')) {
         setError(msg);
+      } else {
+        setError('Your upload is incorrect. Please upload a clear photo of a handwritten grocery order slip.');
       }
     } finally {
       setBusy(false);
@@ -875,10 +875,10 @@ function App() {
       setNotice('Hindi/Hinglish audio transcribed & processed! Please review each detected line.');
     } catch (voiceError) {
       const msg = errorMessage(voiceError);
-      if (msg.includes('500') || msg.toLowerCase().includes('failed') || msg.toLowerCase().includes('error')) {
-        setError('Could not transcribe audio. Please record or upload a clear voice note with item names and quantities.');
-      } else {
+      if (msg && !msg.startsWith('Request failed (500)')) {
         setError(msg);
+      } else {
+        setError('Your upload is incorrect. Please record or upload a clear voice note with item names and quantities.');
       }
     } finally {
       setBusy(false);

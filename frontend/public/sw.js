@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vyapaarsetu-v2';
+const CACHE_NAME = 'vyapaarsetu-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -34,7 +34,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch: Network-first for APIs, Cache-first for static assets, fallback to index.html for navigation
+// Fetch event listener
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
@@ -45,7 +45,18 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // 1. API Requests: Network-first with graceful offline 503 JSON fallback
+  // 1. Cross-Origin Requests: NEVER intercept. Let browser handle cross-origin network requests directly.
+  // This prevents synthesized 503 responses from triggering CORS violations on Vercel -> Render API calls.
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  // 2. Mutations (POST, PUT, DELETE, PATCH): Never intercept with offline fallbacks; let browser execute directly.
+  if (request.method !== 'GET') {
+    return;
+  }
+
+  // 3. Same-Origin GET API Requests: Network-first with graceful offline fallback including CORS headers
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(request).catch(() => {
@@ -54,14 +65,20 @@ self.addEventListener('fetch', (event) => {
             error: 'Offline',
             message: 'You are currently offline. Orders are queued locally.',
           }),
-          { status: 503, headers: { 'Content-Type': 'application/json' } }
+          {
+            status: 503,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          }
         );
       })
     );
     return;
   }
 
-  // 2. Navigation Requests: Network-first for SPA routes with cached index.html fallback
+  // 4. Navigation Requests: Network-first for SPA routes with cached index.html fallback
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
@@ -83,19 +100,20 @@ self.addEventListener('fetch', (event) => {
             '<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px;">' +
             '<h2>VyapaarSetu is currently offline</h2><p>Please check your internet connection.</p>' +
             '</body></html>',
-            { status: 503, headers: { 'Content-Type': 'text/html' } }
+            {
+              status: 503,
+              headers: {
+                'Content-Type': 'text/html',
+                'Access-Control-Allow-Origin': '*',
+              },
+            }
           );
         })
     );
     return;
   }
 
-  // 3. For non-GET requests (e.g. form uploads, mutations), pass straight through to network
-  if (request.method !== 'GET') {
-    return;
-  }
-
-  // 4. Static Assets: Cache-first, fallback to network with resilient error catching
+  // 5. Same-Origin Static Assets: Cache-first, fallback to network
   event.respondWith(
     caches.match(request).then(async (cachedResponse) => {
       if (cachedResponse) {
@@ -116,18 +134,16 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       } catch (fetchErr) {
-        // If network failed and asset is not cached, return fallback image if applicable
         if (request.destination === 'image') {
           const fallbackIcon = await caches.match('/images/icon-192.svg');
           if (fallbackIcon) {
             return fallbackIcon;
           }
         }
-        // Return 503 response instead of unhandled rejection
         return new Response('Asset unavailable offline', {
           status: 503,
           statusText: 'Service Unavailable',
-          headers: { 'Content-Type': 'text/plain' },
+          headers: { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' },
         });
       }
     })

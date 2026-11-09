@@ -775,7 +775,7 @@ class AICaptureService:
     ) -> AICapture:
         """
         Extract readable items from handwritten order list photo using Gemini Multimodal / OCR.
-        Then feeds into deterministic catalog SKU resolution with human-in-the-loop safeguards.
+        Validates that the upload is a genuine grocery order slip; rejects unrelated or invalid uploads.
         """
         import base64
 
@@ -794,9 +794,11 @@ class AICaptureService:
                             "parts": [
                                 {
                                     "text": (
-                                        "You are an OCR assistant for an FMCG distributor in Jabalpur, India. "
-                                        "Transcribe all handwritten grocery items, quantities, and units (peti/case/kilo) "
-                                        "from this store order slip into plain text. One item per line."
+                                        "You are an expert OCR and grocery order validation assistant for VyapaarSetu, an FMCG distributor in Jabalpur, India.\n"
+                                        "Carefully analyze this uploaded image:\n"
+                                        "1. VALIDATION CHECK: Determine whether this image is a genuine handwritten or printed Kirana/grocery store order slip, grocery purchase memo, or FMCG item list.\n"
+                                        "2. If this image is NOT a grocery order slip (e.g. an animal, person/selfie, vehicle, scenery, meme, food photo, blank paper, non-grocery receipt, or completely illegible scribble), respond ONLY with the exact text: INVALID_ORDER_IMAGE\n"
+                                        "3. If it IS a valid grocery order list: transcribe each item, quantity, and packaging unit (e.g. peti, case, packet, kg, g, pcs) line by line in plain text. Do not include markdown or conversational commentary."
                                     )
                                 },
                                 {
@@ -810,7 +812,7 @@ class AICaptureService:
                     ],
                     "generationConfig": {"temperature": 0.1, "maxOutputTokens": 500},
                 }
-                async with httpx.AsyncClient(timeout=15.0) as client:
+                async with httpx.AsyncClient(timeout=20.0) as client:
                     resp = await client.post(url, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -821,18 +823,31 @@ class AICaptureService:
                             .get("text", "")
                             .strip()
                         )
+                    else:
+                        logger.warning("Gemini multimodal image OCR failed with status %d: %s", resp.status_code, resp.text[:200])
             except Exception as e:
-                logger.warning("Gemini multimodal image OCR failed (%s); using heuristic parser", e)
+                logger.warning("Gemini multimodal image OCR failed (%s)", e)
 
-        if not extracted_text:
-            # High-accuracy fallback for Jabalpur kirana handwritten list
-            extracted_text = "5 peti biscuit chhota, 2 peti washing powder 1 kilo, chai patti 250 wala 1 peti"
+        clean_text = (extracted_text or "").strip()
+        if not clean_text or "INVALID_ORDER_IMAGE" in clean_text.upper():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your upload is incorrect. The uploaded photo is not a valid grocery order slip. Please upload a clear photo of your handwritten grocery order.",
+            )
 
-        return await cls.process_text_capture(
+        capture = await cls.process_text_capture(
             session=session,
             retailer=retailer,
-            raw_text=extracted_text,
+            raw_text=clean_text,
         )
+
+        if not capture.lines or len(capture.lines) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your upload is incorrect. No recognizable grocery items or quantities could be extracted from this photo. Please upload a clear photo of your handwritten grocery order slip.",
+            )
+
+        return capture
 
     @classmethod
     async def process_voice_order(
@@ -845,7 +860,7 @@ class AICaptureService:
     ) -> AICapture:
         """
         Transcribe and extract items from Hindi/Hinglish audio voice note using Gemini Audio API.
-        Then feeds into catalog SKU resolution with human uncertainty resolution.
+        Validates that the audio is a genuine grocery order note; rejects unrelated or unintelligible uploads.
         """
         import base64
 
@@ -864,8 +879,11 @@ class AICaptureService:
                             "parts": [
                                 {
                                     "text": (
-                                        "You are an Indian audio transcription assistant for Kirana store voice orders in Jabalpur. "
-                                        "Transcribe this Hindi or Hinglish voice note verbatim into text, capturing item names, quantities, and units."
+                                        "You are an expert audio transcription and FMCG order validation assistant for Kirana store orders for VyapaarSetu distributor in Jabalpur, India.\n"
+                                        "Listen carefully to this Hindi, Hinglish, or English audio note:\n"
+                                        "1. VALIDATION CHECK: Determine whether the speaker is placing or dictating a grocery store order mentioning FMCG products (e.g. biscuits, tea, soaps, detergent, flour, oil, spices) with quantities or packaging units (e.g. peti, case, packet, kilo, piece).\n"
+                                        "2. If this audio is NOT a grocery order (for example: silence, background noise, music, greetings only without any items, unrelated speech, coughing/noise, or unintelligible audio), respond ONLY with the exact text: INVALID_ORDER_AUDIO\n"
+                                        "3. If it IS a valid grocery order: transcribe the order items, quantities, and units verbatim into plain text."
                                     )
                                 },
                                 {
@@ -879,7 +897,7 @@ class AICaptureService:
                     ],
                     "generationConfig": {"temperature": 0.1, "maxOutputTokens": 500},
                 }
-                async with httpx.AsyncClient(timeout=15.0) as client:
+                async with httpx.AsyncClient(timeout=20.0) as client:
                     resp = await client.post(url, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -890,18 +908,31 @@ class AICaptureService:
                             .get("text", "")
                             .strip()
                         )
+                    else:
+                        logger.warning("Gemini audio transcription failed with status %d: %s", resp.status_code, resp.text[:200])
             except Exception as e:
-                logger.warning("Gemini audio transcription failed (%s); using phonetic heuristic", e)
+                logger.warning("Gemini audio transcription failed (%s)", e)
 
-        if not transcribed_text:
-            # Fallback transcription for Hindi voice note
-            transcribed_text = "bhaiya 5 peti biscuit chhota, 2 peti washing powder 1 kilo, chai patti 250 wala 1 peti"
+        clean_text = (transcribed_text or "").strip()
+        if not clean_text or "INVALID_ORDER_AUDIO" in clean_text.upper():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your upload is incorrect. No grocery order items could be recognized in this audio. Please record a clear voice note with product names and quantities (e.g. '5 peti biscuit, 2 peti detergent') and try again.",
+            )
 
-        return await cls.process_text_capture(
+        capture = await cls.process_text_capture(
             session=session,
             retailer=retailer,
-            raw_text=transcribed_text,
+            raw_text=clean_text,
         )
+
+        if not capture.lines or len(capture.lines) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your upload is incorrect. No grocery products could be identified in this recording. Please speak clearly with product names and quantities.",
+            )
+
+        return capture
 
     # Class-level aliases for backwards compatibility
     process_order_message = process_text_capture

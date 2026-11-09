@@ -33,7 +33,13 @@ class Settings(BaseSettings):
 
     # CORS Origins (accepts comma-separated string or list)
     CORS_ORIGINS: Union[List[str], str] = Field(
-        default=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
+        default=[
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:5173",
+            "https://vyapaar-setu-ashen.vercel.app",
+            "https://vyapaarsetu-2.onrender.com",
+        ]
     )
 
     # AI Provider ("gemini", "openai", or "auto")

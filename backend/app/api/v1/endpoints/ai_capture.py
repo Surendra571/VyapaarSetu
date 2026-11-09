@@ -201,7 +201,7 @@ async def capture_order_photo(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Could not detect legible grocery order items in this photo. Please upload a clear photo of your handwritten grocery order slip.",
+            detail="Your upload is incorrect. Could not detect legible grocery order items in this photo. Please upload a clear photo of your handwritten grocery order slip.",
         )
 
 
@@ -275,7 +275,7 @@ async def capture_order_voice(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Could not understand the voice note clearly. Please upload or record a clear audio note with product names and quantities.",
+            detail="Your upload is incorrect. Could not understand the voice note clearly. Please record or upload a clear audio note with product names and quantities.",
         )
 
 
