@@ -27,7 +27,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/backend \
-    PORT=8000
+    PORT=10000
 
 WORKDIR /app
 
@@ -49,12 +49,13 @@ COPY --from=frontend-builder /build/frontend/dist ./frontend/dist
 
 WORKDIR /app/backend
 
-# Expose standard container port
+# Expose Render standard port (10000) and fallback (8000)
+EXPOSE 10000
 EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -f http://127.0.0.1:${PORT:-8000}/api/v1/health || exit 1
+    CMD curl -f http://127.0.0.1:${PORT:-10000}/api/v1/health || exit 1
 
 # Apply database migrations, seed master FMCG catalogue, and launch Uvicorn on $PORT
 CMD ["python", "-m", "app.scripts.start"]

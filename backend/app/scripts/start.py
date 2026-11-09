@@ -25,7 +25,7 @@ def is_database_reachable(host: str, port: int, timeout: float = 2.0) -> bool:
 
 
 def main():
-    port = int(os.environ.get("PORT", "8000"))
+    port = int(os.environ.get("PORT", "10000"))
 
     # Import settings to trigger URL normalization
     from app.core.config import settings
@@ -111,10 +111,12 @@ def main():
             db_port,
         )
 
-    # Launch Uvicorn
+    # Launch Uvicorn on 0.0.0.0:$PORT
     logger.info("Starting Uvicorn ASGI server on 0.0.0.0:%d...", port)
+    sys.stdout.flush()
+    sys.stderr.flush()
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port, log_level="info")
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, log_level="info", access_log=True)
 
 
 if __name__ == "__main__":

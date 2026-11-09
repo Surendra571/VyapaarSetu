@@ -6,6 +6,8 @@ services:
     healthCheckPath: /api/v1/health
     plan: free
     envVars:
+      - key: PORT
+        value: "10000"
       - key: ENVIRONMENT
         value: production
       - key: DEBUG
