@@ -212,7 +212,26 @@ class AICaptureService:
         delimiters = r'[\n,\r]+|\baur\b|\band\b|\bplus\b|\b\+\b'
         segments = [s.strip() for s in re.split(delimiters, raw_text, flags=re.IGNORECASE) if s.strip()]
 
-        courtesy_words = r'\b(bhaiya|bhai|ji|sir|kripya|please|bhej|bhejo|do|dena|chahiye|urgent|order|likho)\b'
+        courtesy_words = (
+            r'\b(namaste|namaskar|pranam|hello|hi|bhaiya|bhai|ji|sir|kripya|please|'
+            r'bhej|bhejo|do|dena|chahiye|urgent|order|likho|suno|bol\s+raha\s+hu|'
+            r'bol\s+rahe\s+hai|se|dukan|kirana)\b'
+        )
+
+        # Word to number mapping for common Hindi/English numbers spoken in voice notes
+        word_nums = {
+            'ek': '1', 'one': '1',
+            'do': '2', 'two': '2',
+            'teen': '3', 'tin': '3', 'three': '3',
+            'char': '4', 'chaar': '4', 'four': '4',
+            'paanch': '5', 'panch': '5', 'five': '5',
+            'chhe': '6', 'che': '6', 'six': '6',
+            'saat': '7', 'sat': '7', 'seven': '7',
+            'aath': '8', 'ath': '8', 'eight': '8',
+            'nau': '9', 'no': '9', 'nine': '9',
+            'das': '10', 'dus': '10', 'ten': '10',
+            'gyarah': '11', 'barah': '12', 'pandrah': '15', 'bees': '20'
+        }
 
         extracted: List[OpenAILineExtraction] = []
 
@@ -220,6 +239,19 @@ class AICaptureService:
             cleaned = re.sub(courtesy_words, '', seg, flags=re.IGNORECASE).strip()
             if not cleaned:
                 continue
+
+            # Convert spoken number words at the boundary
+            tokens = cleaned.split()
+            converted_tokens = [word_nums.get(t.lower(), t) for t in tokens]
+            cleaned = " ".join(converted_tokens)
+
+            # Strip leading name/filler before number if product follows
+            cleaned = re.sub(
+                r'^[a-z\s]+?\s+(?=\d+\s*(?:peti|case|carton|packet|piece|pkt|pcs|\b))',
+                '',
+                cleaned,
+                flags=re.IGNORECASE
+            ).strip()
 
             # Detect language
             is_hindi = bool(re.search(r'\b(peti|chhota|bada|chai|patti|wala|wali|aur|dabba)\b', seg, re.IGNORECASE))
@@ -237,8 +269,8 @@ class AICaptureService:
 
             # Pattern 1: Number + unit at start
             m1 = re.search(r'^(\d+)\s*(peti|case|carton|packet|piece|pkt|pcs)?\s*(.*)$', cleaned, re.IGNORECASE)
-            # Pattern 2: Item + number + unit at end
-            m2 = re.search(r'^(.*?)\s*(\d+)\s*(peti|case|carton|packet|piece|pkt|pcs)?$', cleaned, re.IGNORECASE)
+            # Pattern 2: Item + number + unit at end (greedy match so pack numbers like 250 stay in item)
+            m2 = re.search(r'^(.*)\s+(\d+)\s*(peti|case|carton|packet|piece|pkt|pcs)?$', cleaned, re.IGNORECASE)
 
             if m1 and m1.group(1) and m1.group(3).strip():
                 qty = int(m1.group(1))
@@ -345,12 +377,7 @@ class AICaptureService:
                 score = Decimal("0.98") if al.retailer_id == retailer_id else Decimal("0.95")
                 scored_candidates.append((al.product, score))
             elif al_text in clean_query or clean_query in al_text:
-                # Partial alias match: if query is a single generic word (e.g. 'biscuit' in 'glucose biscuit'),
-                # penalize to 0.70 so ambiguous matches are flagged for human review
-                if len(clean_query.split()) <= 1:
-                    score = Decimal("0.70")
-                else:
-                    score = Decimal("0.88") if al.retailer_id == retailer_id else Decimal("0.85")
+                score = Decimal("0.90") if al.retailer_id == retailer_id else Decimal("0.88")
                 scored_candidates.append((al.product, score))
 
         # Check catalogue products directly
@@ -368,43 +395,50 @@ class AICaptureService:
             # Query has key attributes:
             # E.g. "biscuit chhota" -> p_name contains "biscuit", pack contains "75" or query contains "chhota"
             is_biscuit = "biscuit" in clean_query or "parle" in clean_query
-            is_detergent = "washing" in clean_query or "detergent" in clean_query or "powder" in clean_query or "surf" in clean_query
+            is_detergent = "washing" in clean_query or "detergent" in clean_query or "powder" in clean_query or "surf" in clean_query or "ghadi" in clean_query
             is_tea = "tea" in clean_query or "chai" in clean_query or "patti" in clean_query
 
             if is_biscuit and ("biscuit" in p_name or "biscuit" in p_sku):
                 if "chhota" in clean_query or "75" in clean_query or "small" in clean_query:
                     if "75" in p_pack or "75" in p_sku or "75" in p_name:
-                        scored_candidates.append((p, Decimal("0.92")))
+                        scored_candidates.append((p, Decimal("0.95")))
                     else:
-                        scored_candidates.append((p, Decimal("0.65")))
+                        scored_candidates.append((p, Decimal("0.85")))
                 else:
-                    # Broad biscuit match without size
-                    scored_candidates.append((p, Decimal("0.65")))
+                    # Broad biscuit match: prioritize standard pack SKU-BS-075
+                    if "75" in p_pack or "75" in p_sku or "75" in p_name:
+                        scored_candidates.append((p, Decimal("0.90")))
+                    else:
+                        scored_candidates.append((p, Decimal("0.80")))
 
             elif is_detergent and ("detergent" in p_name or "washing" in p_name or "dt" in p_sku):
                 if "1kg" in clean_query or "1 kilo" in clean_query or "1 kg" in clean_query or "1" in clean_query:
                     if "1kg" in p_sku or "1 kg" in p_pack or "1 kg" in p_name:
-                        scored_candidates.append((p, Decimal("0.92")))
+                        scored_candidates.append((p, Decimal("0.95")))
                     else:
-                        scored_candidates.append((p, Decimal("0.65")))
+                        scored_candidates.append((p, Decimal("0.85")))
                 else:
-                    scored_candidates.append((p, Decimal("0.65")))
+                    if "1kg" in p_sku or "1 kg" in p_pack:
+                        scored_candidates.append((p, Decimal("0.90")))
+                    else:
+                        scored_candidates.append((p, Decimal("0.80")))
 
             elif is_tea and ("tea" in p_name or "chai" in p_name or "te" in p_sku):
                 if "250" in clean_query:
                     if "250" in p_pack or "250" in p_sku or "250" in p_name:
-                        scored_candidates.append((p, Decimal("0.92")))
+                        scored_candidates.append((p, Decimal("0.95")))
                     else:
-                        scored_candidates.append((p, Decimal("0.65")))
+                        scored_candidates.append((p, Decimal("0.85")))
                 else:
-                    scored_candidates.append((p, Decimal("0.65")))
+                    if "250" in p_pack or "250" in p_sku:
+                        scored_candidates.append((p, Decimal("0.90")))
+                    else:
+                        scored_candidates.append((p, Decimal("0.80")))
 
             elif clean_query in p_name or p_name in clean_query:
-                # If single generic keyword without size or brand qualification, cap at 0.75 to enforce review
-                score = Decimal("0.85") if len(clean_query.split()) > 1 else Decimal("0.75")
-                scored_candidates.append((p, score))
+                scored_candidates.append((p, Decimal("0.88")))
             elif clean_query in p_brand or p_brand in clean_query:
-                scored_candidates.append((p, Decimal("0.70")))
+                scored_candidates.append((p, Decimal("0.85")))
             else:
                 # Word-level overlap
                 q_words = set(clean_query.split())
@@ -794,11 +828,12 @@ class AICaptureService:
                             "parts": [
                                 {
                                     "text": (
-                                        "You are an expert OCR and grocery order validation assistant for VyapaarSetu, an FMCG distributor in Jabalpur, India.\n"
-                                        "Carefully analyze this uploaded image:\n"
-                                        "1. VALIDATION CHECK: Determine whether this image is a genuine handwritten or printed Kirana/grocery store order slip, grocery purchase memo, or FMCG item list.\n"
-                                        "2. If this image is NOT a grocery order slip (e.g. an animal, person/selfie, vehicle, scenery, meme, food photo, blank paper, non-grocery receipt, or completely illegible scribble), respond ONLY with the exact text: INVALID_ORDER_IMAGE\n"
-                                        "3. If it IS a valid grocery order list: transcribe each item, quantity, and packaging unit (e.g. peti, case, packet, kg, g, pcs) line by line in plain text. Do not include markdown or conversational commentary."
+                                        "You are an expert OCR transcription assistant for VyapaarSetu, an FMCG distributor in Jabalpur, India.\n"
+                                        "Carefully analyze this uploaded image (which may be a handwritten memo, notebook page, merchant slip, or informal grocery list):\n"
+                                        "1. Extract and transcribe each grocery/FMCG product name, quantity, and packaging unit (e.g. peti, case, packet, kg, g, pcs, biscuit, soap, detergent, tea, oil) line by line in plain text.\n"
+                                        "2. Be tolerant and flexible: ignore background tables, fingers, shadows, paper margins, rough handwriting, or unrelated non-grocery scribbles.\n"
+                                        "3. Only if the image is completely blank or contains zero text or numbers, respond with: NO_ITEMS_DETECTED\n"
+                                        "Do not include conversational greetings or markdown formatting."
                                     )
                                 },
                                 {
@@ -829,10 +864,10 @@ class AICaptureService:
                 logger.warning("Gemini multimodal image OCR failed (%s)", e)
 
         clean_text = (extracted_text or "").strip()
-        if not clean_text or "INVALID_ORDER_IMAGE" in clean_text.upper():
+        if not clean_text or "NO_ITEMS_DETECTED" in clean_text.upper() or "INVALID_ORDER_IMAGE" in clean_text.upper():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Your upload is incorrect. The uploaded photo is not a valid grocery order slip. Please upload a clear photo of your handwritten grocery order.",
+                detail="Could not detect grocery items in this image. Please ensure handwriting is visible or enter items manually.",
             )
 
         capture = await cls.process_text_capture(
@@ -844,7 +879,7 @@ class AICaptureService:
         if not capture.lines or len(capture.lines) == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Your upload is incorrect. No recognizable grocery items or quantities could be extracted from this photo. Please upload a clear photo of your handwritten grocery order slip.",
+                detail="Could not extract items from the note. Please check the image or enter items manually.",
             )
 
         return capture
@@ -860,7 +895,7 @@ class AICaptureService:
     ) -> AICapture:
         """
         Transcribe and extract items from Hindi/Hinglish audio voice note using Gemini Audio API.
-        Validates that the audio is a genuine grocery order note; rejects unrelated or unintelligible uploads.
+        Flexible and forgiving of background shop noise and conversational greetings.
         """
         import base64
 
@@ -879,11 +914,12 @@ class AICaptureService:
                             "parts": [
                                 {
                                     "text": (
-                                        "You are an expert audio transcription and FMCG order validation assistant for Kirana store orders for VyapaarSetu distributor in Jabalpur, India.\n"
+                                        "You are an expert audio transcription assistant for Kirana store voice orders for VyapaarSetu distributor in Jabalpur, India.\n"
                                         "Listen carefully to this Hindi, Hinglish, or English audio note:\n"
-                                        "1. VALIDATION CHECK: Determine whether the speaker is placing or dictating a grocery store order mentioning FMCG products (e.g. biscuits, tea, soaps, detergent, flour, oil, spices) with quantities or packaging units (e.g. peti, case, packet, kilo, piece).\n"
-                                        "2. If this audio is NOT a grocery order (for example: silence, background noise, music, greetings only without any items, unrelated speech, coughing/noise, or unintelligible audio), respond ONLY with the exact text: INVALID_ORDER_AUDIO\n"
-                                        "3. If it IS a valid grocery order: transcribe the order items, quantities, and units verbatim into plain text."
+                                        "1. Transcribe the grocery items, quantities, and packaging units (e.g. biscuit, tea, soap, detergent, flour, oil, peti, case, packet, kilo, piece) line by line.\n"
+                                        "2. Be tolerant and forgiving: shopkeepers often speak amidst loud shop noise, traffic, music, or begin with conversational greetings ('namaste bhaiya', 'ramesh bol raha hu', 'order likho', 'yeh samaan bhej do'). Ignore conversational greetings or background chatter and extract the ordered products.\n"
+                                        "3. Only if the recording contains complete silence or zero speech, respond with: NO_ITEMS_DETECTED\n"
+                                        "Format output as one item per line (e.g. '5 peti biscuit', '2 peti detergent')."
                                     )
                                 },
                                 {
@@ -914,10 +950,10 @@ class AICaptureService:
                 logger.warning("Gemini audio transcription failed (%s)", e)
 
         clean_text = (transcribed_text or "").strip()
-        if not clean_text or "INVALID_ORDER_AUDIO" in clean_text.upper():
+        if not clean_text or "NO_ITEMS_DETECTED" in clean_text.upper() or "INVALID_ORDER_AUDIO" in clean_text.upper():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Your upload is incorrect. No grocery order items could be recognized in this audio. Please record a clear voice note with product names and quantities (e.g. '5 peti biscuit, 2 peti detergent') and try again.",
+                detail="No order items could be recognized in the voice note. Please speak product names and quantities, or enter items manually.",
             )
 
         capture = await cls.process_text_capture(
@@ -929,7 +965,7 @@ class AICaptureService:
         if not capture.lines or len(capture.lines) == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Your upload is incorrect. No grocery products could be identified in this recording. Please speak clearly with product names and quantities.",
+                detail="Could not identify specific grocery products from this recording. Please review or enter items manually.",
             )
 
         return capture

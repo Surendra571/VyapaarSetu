@@ -911,11 +911,11 @@ function App() {
     try {
       const result = await api.capturePhoto(photoFile);
       if (!result.lines || result.lines.length === 0) {
-        const noLinesMsg = 'Your upload is incorrect. No grocery items could be recognized in this photo. Please make sure the handwriting is clear and well-lit, then try again.';
+        const noLinesMsg = 'No grocery items could be recognized in this photo. Please ensure item names and quantities are visible, or enter items manually.';
         setError(noLinesMsg);
         setUploadErrorModal({
           mode: 'photo',
-          title: 'Incorrect Order Photo',
+          title: 'Items Not Detected',
           message: noLinesMsg,
         });
         return;
@@ -937,11 +937,11 @@ function App() {
       const msg = errorMessage(photoError);
       const cleanMsg = msg && !msg.startsWith('Request failed (500)')
         ? msg
-        : 'Your upload is incorrect. The uploaded photo is not a valid grocery order slip. Please upload a clear photo of your handwritten grocery order.';
+        : 'Could not extract grocery items from this photo. Please check the image or enter items manually.';
       setError(cleanMsg);
       setUploadErrorModal({
         mode: 'photo',
-        title: 'Incorrect Order Slip Photo',
+        title: 'Review Order Photo',
         message: cleanMsg,
       });
     } finally {
@@ -999,11 +999,11 @@ function App() {
     try {
       const result = await api.captureVoice(voiceFile);
       if (!result.lines || result.lines.length === 0) {
-        const noLinesMsg = 'Your upload is incorrect. No order items could be recognized in this audio. Please speak clearly (e.g. "bhaiya 5 peti biscuit, 2 peti detergent") and try again.';
+        const noLinesMsg = 'No order items could be recognized in this audio. Please mention product names and quantities, or enter items manually.';
         setError(noLinesMsg);
         setUploadErrorModal({
           mode: 'voice',
-          title: 'Voice Note Not Recognized',
+          title: 'Order Items Not Detected',
           message: noLinesMsg,
         });
         return;
@@ -1025,11 +1025,11 @@ function App() {
       const msg = errorMessage(voiceError);
       const cleanMsg = msg && !msg.startsWith('Request failed (500)')
         ? msg
-        : 'Your upload is incorrect. No grocery order items could be recognized in this audio. Please record a clear voice note with product names and quantities.';
+        : 'Could not extract grocery items from this recording. Please try speaking product names and quantities, or enter items manually.';
       setError(cleanMsg);
       setUploadErrorModal({
         mode: 'voice',
-        title: 'Voice Note Not Recognized',
+        title: 'Voice Note Review',
         message: cleanMsg,
       });
     } finally {
@@ -3128,26 +3128,18 @@ function AppAlertModal({
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="font-bold text-emerald-700">✓</span>
-                  <span><strong>Lighting & Angle:</strong> Capture straight from above with good light, avoiding shadows.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="font-bold text-rose-600">✕</span>
-                  <span><strong>Avoid:</strong> Selfies, scenery, vehicles, blank paper, or blurry scribbles.</span>
+                  <span><strong>Flexible Extraction:</strong> Notebook pages, merchant slips, and informal lists are all accepted.</span>
                 </li>
               </>
             ) : isVoice ? (
               <>
                 <li className="flex items-start gap-2">
                   <span className="font-bold text-emerald-700">✓</span>
-                  <span><strong>Speak Items & Units:</strong> Clearly say <em>"5 peti Parle-G chhota, 2 peti detergent powder"</em>.</span>
+                  <span><strong>Speak Items & Units:</strong> Mention products like <em>"5 peti Parle-G chhota, 2 peti detergent powder"</em>.</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="font-bold text-emerald-700">✓</span>
-                  <span><strong>Language:</strong> Hindi, Hinglish, or English are all recognized.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="font-bold text-rose-600">✕</span>
-                  <span><strong>Avoid:</strong> Loud background noise/music or greetings without item names.</span>
+                  <span><strong>Language & Noise:</strong> Hindi, Hinglish, and English are recognized even with shop background sounds.</span>
                 </li>
               </>
             ) : (
