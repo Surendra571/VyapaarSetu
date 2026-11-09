@@ -23,6 +23,66 @@ class DemoLoginRequest(BaseModel):
     )
 
 
+class SendOtpRequest(BaseModel):
+    """Request transactional OTP code to mobile number."""
+    phone_number: str = Field(
+        ...,
+        min_length=10,
+        max_length=15,
+        description="10-digit mobile number",
+        examples=["9826011111"],
+    )
+
+
+class RegisterRetailerRequest(BaseModel):
+    """Retailer self-registration request with business details and OTP."""
+    phone_number: str = Field(
+        ...,
+        min_length=10,
+        max_length=15,
+        description="10-digit Indian mobile number",
+        examples=["9876543210"],
+    )
+    full_name: str = Field(
+        ...,
+        min_length=2,
+        max_length=150,
+        description="Owner / contact full name",
+        examples=["Rajesh Kumar"],
+    )
+    store_name: str = Field(
+        ...,
+        min_length=2,
+        max_length=200,
+        description="Kirana / shop / business name",
+        examples=["Kumar Super Store"],
+    )
+    city: Optional[str] = Field(
+        default="Jabalpur",
+        max_length=100,
+        description="Operating city",
+        examples=["Jabalpur"],
+    )
+    address: Optional[str] = Field(
+        default="Main Market, Jabalpur",
+        max_length=300,
+        description="Shop address or landmark",
+        examples=["Shop 4, Wright Town, Jabalpur"],
+    )
+    gst_number: Optional[str] = Field(
+        default=None,
+        max_length=30,
+        description="Optional GSTIN number",
+    )
+    otp_code: str = Field(
+        default="123456",
+        min_length=4,
+        max_length=10,
+        description="Verification OTP received via SMS",
+        examples=["123456"],
+    )
+
+
 class RetailerProfileResponse(BaseModel):
     """Retailer business and credit ledger metadata."""
     id: uuid.UUID

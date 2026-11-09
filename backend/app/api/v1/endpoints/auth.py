@@ -1,3 +1,5 @@
+from decimal import Decimal
+import secrets
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import HTMLResponse
@@ -8,9 +10,12 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.security import create_access_token
 from app.models.user import User
+from app.models.retailer import Retailer
 from app.services.sms_service import sms_provider
 from app.schemas.auth import (
     DemoLoginRequest,
+    SendOtpRequest,
+    RegisterRetailerRequest,
     TokenResponse,
     UserProfileResponse,
     RetailerProfileResponse,
@@ -19,6 +24,18 @@ from app.schemas.common import StandardMessageResponse
 from app.api.deps import get_current_user
 
 router = APIRouter()
+
+
+def normalize_phone(phone: Optional[str]) -> str:
+    """Normalize phone number to 10-digit Indian mobile format."""
+    if not phone:
+        return ""
+    cleaned = "".join(filter(str.isdigit, phone.strip()))
+    if cleaned.startswith("91") and len(cleaned) == 12:
+        cleaned = cleaned[2:]
+    elif cleaned.startswith("0") and len(cleaned) == 11:
+        cleaned = cleaned[1:]
+    return cleaned
 
 
 @router.post(
@@ -31,7 +48,8 @@ async def send_otp(
     payload: DemoLoginRequest,
     db: AsyncSession = Depends(get_db),
 ) -> StandardMessageResponse:
-    phone = payload.phone_number.strip() if payload.phone_number else "9826011111"
+    raw_phone = payload.phone_number.strip() if payload.phone_number else "9826011111"
+    phone = normalize_phone(raw_phone) or raw_phone
     if hasattr(sms_provider, "otp_store"):
         can_send, rate_err = sms_provider.otp_store.can_send(phone)
         if not can_send:
@@ -168,6 +186,12 @@ async def demo_login_get(
 
 
 @router.post(
+    "/auth/login",
+    response_model=TokenResponse,
+    summary="User Authentication (Sign In)",
+    description="Sign in using mobile number and verified OTP.",
+)
+@router.post(
     "/auth/demo-login",
     response_model=TokenResponse,
     summary="Mock OTP Demo Authentication",
@@ -177,8 +201,10 @@ async def demo_login(
     payload: DemoLoginRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    # 1. Verify OTP with Provider (Supports mock OTP 123456 and dynamic provider codes)
-    phone_target = payload.phone_number.strip() if payload.phone_number else "9826011111"
+    # 1. Normalize and Verify OTP with Provider
+    raw_phone = payload.phone_number.strip() if payload.phone_number else None
+    phone_target = normalize_phone(raw_phone) if raw_phone else ("9826000000" if (payload.role and "desk" in payload.role.lower()) else "9826011111")
+
     valid, msg = sms_provider.verify_otp(phone_target, payload.otp_code)
     if not valid:
         raise HTTPException(
@@ -188,8 +214,8 @@ async def demo_login(
 
     # 2. Lookup user by phone or role selector
     stmt = select(User).options(selectinload(User.retailers))
-    if payload.phone_number:
-        stmt = stmt.where(User.phone_number == payload.phone_number.strip())
+    if raw_phone:
+        stmt = stmt.where((User.phone_number == phone_target) | (User.phone_number == raw_phone))
     elif payload.role:
         stmt = stmt.where(User.role == payload.role.strip())
     else:
@@ -202,7 +228,7 @@ async def demo_login(
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No matching user account found. Ensure demo seed data has been loaded.",
+            detail=f"No account found with mobile number '{phone_target}'. Please check your number or tap 'Create Account' to sign up in 30 seconds.",
         )
 
     # 3. Build token claims
@@ -221,6 +247,96 @@ async def demo_login(
         full_name=user.full_name,
         role=user.role,
         is_active=user.is_active,
+        retailer=retailer_profile,
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        user=user_profile,
+    )
+
+
+@router.post(
+    "/auth/register",
+    response_model=TokenResponse,
+    summary="Retailer Account Self-Registration (Sign Up)",
+    description="Registers a new Kirana store retailer account using mobile number verification and creates business ledger profile.",
+)
+async def register_retailer(
+    payload: RegisterRetailerRequest,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    phone = normalize_phone(payload.phone_number)
+    if len(phone) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid mobile number. Please enter a valid 10-digit Indian mobile number.",
+        )
+
+    # 1. Verify OTP code
+    valid, msg = sms_provider.verify_otp(phone, payload.otp_code)
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid OTP code. {msg}",
+        )
+
+    # 2. Check if account already exists
+    stmt = select(User).where(User.phone_number == phone)
+    res = await db.execute(stmt)
+    existing_user = res.scalar_one_or_none()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"An account with mobile number '{phone}' already exists. Please switch to Sign In.",
+        )
+
+    # 3. Generate unique retailer code
+    unique_suffix = secrets.token_hex(3).upper()
+    retailer_code = f"RET-JBP-{unique_suffix}"
+
+    # 4. Create User entity
+    new_user = User(
+        phone_number=phone,
+        full_name=payload.full_name.strip(),
+        role="ROLE_RETAILER",
+        is_active=True,
+    )
+    db.add(new_user)
+    await db.flush()
+
+    # 5. Create Retailer entity with standard starter credit limit
+    new_retailer = Retailer(
+        user_id=new_user.id,
+        retailer_code=retailer_code,
+        store_name=payload.store_name.strip(),
+        owner_name=payload.full_name.strip(),
+        address=payload.address.strip() if payload.address else "Main Market, Jabalpur",
+        city=payload.city.strip() if payload.city else "Jabalpur",
+        gst_number=payload.gst_number.strip() if payload.gst_number else None,
+        credit_limit=Decimal("50000.00"),
+        outstanding_amount=Decimal("0.00"),
+        available_credit=Decimal("50000.00"),
+        is_credit_locked=False,
+        pricing_tier="STANDARD",
+    )
+    db.add(new_retailer)
+    await db.commit()
+    await db.refresh(new_user)
+    await db.refresh(new_retailer)
+
+    # 6. Issue access token and return token response
+    claims = {"role": new_user.role, "retailer_id": str(new_retailer.id)}
+    access_token = create_access_token(subject=str(new_user.id), claims=claims)
+
+    retailer_profile = RetailerProfileResponse.model_validate(new_retailer)
+    user_profile = UserProfileResponse(
+        id=new_user.id,
+        phone_number=new_user.phone_number,
+        full_name=new_user.full_name,
+        role=new_user.role,
+        is_active=new_user.is_active,
         retailer=retailer_profile,
     )
 

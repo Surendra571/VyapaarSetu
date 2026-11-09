@@ -319,9 +319,29 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const api = {
   login: (phone_number: string, otp_code: string) =>
-    request<{ access_token: string; user: AuthUser }>('/auth/demo-login', {
+    request<{ access_token: string; user: AuthUser }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ phone_number, otp_code }),
+    }),
+
+  sendOtp: (phone_number: string) =>
+    request<{ message: string }>('/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({ phone_number }),
+    }),
+
+  register: (payload: {
+    phone_number: string;
+    full_name: string;
+    store_name: string;
+    city?: string;
+    address?: string;
+    gst_number?: string;
+    otp_code: string;
+  }) =>
+    request<{ access_token: string; user: AuthUser }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
 
   me: () => request<AuthUser>('/auth/me'),

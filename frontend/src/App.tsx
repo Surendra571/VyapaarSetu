@@ -7,8 +7,10 @@ import {
   BadgeCheck,
   Box,
   BriefcaseBusiness,
+  Building2,
   Camera,
   Check,
+  CheckCircle2,
   ChevronDown,
   CircleHelp,
   ClipboardList,
@@ -17,8 +19,10 @@ import {
   FileSpreadsheet,
   Headphones,
   Home,
+  KeyRound,
   LoaderCircle,
   LogOut,
+  MapPin,
   Mic,
   MicOff,
   Minus,
@@ -29,6 +33,7 @@ import {
   RotateCcw,
   Search,
   ShoppingBag,
+  Smartphone,
   Sparkles,
   Store,
   Truck,
@@ -176,6 +181,20 @@ function App() {
   const [loginRole, setLoginRole] = useState<LoginRole>('retailer');
   const [loginForm, setLoginForm] = useState<LoginForm>(DEMO_ACCOUNTS.retailer);
   const [loginBusy, setLoginBusy] = useState(false);
+  const [authTab, setAuthTab] = useState<'signin' | 'signup'>('signin');
+  const [signUpForm, setSignUpForm] = useState({
+    phone: '',
+    fullName: '',
+    storeName: '',
+    city: 'Jabalpur',
+    address: '',
+    gstNumber: '',
+    otp: '123456',
+  });
+  const [otpNotice, setOtpNotice] = useState('');
+  const [otpTimer, setOtpTimer] = useState(0);
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [accountNotFoundNotice, setAccountNotFoundNotice] = useState(false);
   const [screen, setScreen] = useState<Screen>(() => {
     if (typeof window !== 'undefined') {
       return getScreenFromPath(window.location.pathname);
@@ -279,6 +298,14 @@ function App() {
     }
     setVoiceAudioUrl(null);
   }, [voiceFile]);
+
+  useEffect(() => {
+    if (otpTimer <= 0) return;
+    const interval = setInterval(() => {
+      setOtpTimer((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [otpTimer]);
 
   // Repeat Order Preview Modal
   const [repeatPreview, setRepeatPreview] = useState<RepeatOrderPreviewResponse | null>(null);
@@ -606,10 +633,34 @@ function App() {
     }
   };
 
+  const handleSendOtp = async (targetPhone?: string) => {
+    const raw = targetPhone ?? (authTab === 'signin' ? loginForm.phone : signUpForm.phone);
+    const cleaned = raw.replace(/\D/g, '');
+    const phone = cleaned.startsWith('91') && cleaned.length === 12 ? cleaned.slice(2) : cleaned;
+    if (!phone || phone.length < 10) {
+      setError('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+    setError('');
+    setOtpNotice('');
+    setSendingOtp(true);
+    setAccountNotFoundNotice(false);
+    try {
+      const res = await api.sendOtp(phone);
+      setOtpTimer(30);
+      setOtpNotice(res.message || `OTP dispatched to +91 ******${phone.slice(-4)}. Enter OTP to verify.`);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSendingOtp(false);
+    }
+  };
+
   const signIn = async (event: FormEvent) => {
     event.preventDefault();
     setLoginBusy(true);
     setError('');
+    setAccountNotFoundNotice(false);
     try {
       const response = await api.login(loginForm.phone, loginForm.otp);
       setToken(response.access_token);
@@ -634,7 +685,64 @@ function App() {
       if (targetScreen === 'van') void loadVanData();
       if (targetScreen === 'inactivity') void loadInactivityData(1);
     } catch (loginError) {
-      setError(errorMessage(loginError));
+      const msg = errorMessage(loginError);
+      setError(msg);
+      if (msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('no account found')) {
+        setAccountNotFoundNotice(true);
+      }
+    } finally {
+      setLoginBusy(false);
+      setLoginState('ready');
+    }
+  };
+
+  const signUp = async (event: FormEvent) => {
+    event.preventDefault();
+    setLoginBusy(true);
+    setError('');
+    setOtpNotice('');
+    setAccountNotFoundNotice(false);
+    const cleaned = signUpForm.phone.replace(/\D/g, '');
+    const phone = cleaned.startsWith('91') && cleaned.length === 12 ? cleaned.slice(2) : cleaned;
+    if (!phone || phone.length < 10) {
+      setError('Please enter a valid 10-digit Indian mobile number.');
+      setLoginBusy(false);
+      return;
+    }
+    if (!signUpForm.fullName.trim()) {
+      setError('Please enter the shop owner or contact name.');
+      setLoginBusy(false);
+      return;
+    }
+    if (!signUpForm.storeName.trim()) {
+      setError('Please enter your Kirana / Shop name.');
+      setLoginBusy(false);
+      return;
+    }
+    if (!signUpForm.otp.trim()) {
+      setError('Please enter the 6-digit OTP code.');
+      setLoginBusy(false);
+      return;
+    }
+
+    try {
+      const response = await api.register({
+        phone_number: phone,
+        full_name: signUpForm.fullName.trim(),
+        store_name: signUpForm.storeName.trim(),
+        city: signUpForm.city.trim() || 'Jabalpur',
+        address: signUpForm.address.trim() || 'Main Market, Jabalpur',
+        gst_number: signUpForm.gstNumber.trim() || undefined,
+        otp_code: signUpForm.otp.trim(),
+      });
+      setToken(response.access_token);
+      setUser(response.user);
+      setLoginRole('retailer');
+      showScreen('catalogue');
+      await loadUserData(response.user);
+      setNotice(`Welcome ${response.user.full_name}! Your Kirana store account is ready with ₹50,000 credit line.`);
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
       setLoginBusy(false);
       setLoginState('ready');
@@ -1211,17 +1319,48 @@ function App() {
                 </div>
               )}
 
-              <div className="mb-8">
-                <p className="text-sm font-bold uppercase tracking-[.18em] text-emerald-700">Welcome back</p>
-                <h2 className="mt-2 text-3xl font-extrabold tracking-[-.04em] text-slate-900">Sign in to your account</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-500">Use your registered mobile number to continue.</p>
+              {/* Main Tab Switcher: Sign In vs Create Account */}
+              <div className="mb-6 grid grid-cols-2 rounded-2xl bg-slate-100 p-1.5 border border-slate-200/80 shadow-inner">
+                <button
+                  type="button"
+                  onClick={() => { setAuthTab('signin'); setError(''); setOtpNotice(''); setAccountNotFoundNotice(false); }}
+                  className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${authTab === 'signin' ? 'bg-white text-emerald-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  <Smartphone className="h-4 w-4" />
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setAuthTab('signup'); setError(''); setOtpNotice(''); setAccountNotFoundNotice(false); }}
+                  className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${authTab === 'signup' ? 'bg-white text-emerald-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  <Store className="h-4 w-4" />
+                  Create Account
+                  <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-extrabold text-emerald-800">New</span>
+                </button>
               </div>
-              {/* 1-Click Instant Login Cards */}
+
+              {/* Title & Subtitle */}
+              <div className="mb-6">
+                <p className="text-xs font-bold uppercase tracking-[.18em] text-emerald-700">
+                  {authTab === 'signin' ? 'Welcome Back' : 'New Kirana Registration'}
+                </p>
+                <h2 className="mt-1 text-2xl font-extrabold tracking-[-.03em] text-slate-900 sm:text-3xl">
+                  {authTab === 'signin' ? 'Sign in to your account' : 'Register your Kirana Store'}
+                </h2>
+                <p className="mt-1.5 text-xs sm:text-sm leading-5 text-slate-500">
+                  {authTab === 'signin'
+                    ? 'Enter your mobile number and OTP to access live stock and orders.'
+                    : 'Get ₹50,000 starter credit line, wholesale rates, and AI ordering.'}
+                </p>
+              </div>
+
+              {/* 1-Click Instant Demo Login Cards */}
               <div className="mb-6 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3.5">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-900">
                     <Sparkles className="h-3.5 w-3.5 text-emerald-700" />
-                    One-Click Demo Access
+                    One-Click Quick Access
                   </span>
                   <span className="text-[10px] font-semibold text-emerald-700">Jabalpur FMCG</span>
                 </div>
@@ -1253,35 +1392,248 @@ function App() {
                 </div>
               </div>
 
-              <div className="mb-6 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
-                {(['retailer', 'desk'] as const).map((role) => (
+              {/* OTP Sent Success Alert */}
+              {otpNotice && (
+                <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-900 shadow-xs">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5" />
+                  <div className="flex-1 leading-5">{otpNotice}</div>
+                </div>
+              )}
+
+              {/* Account Not Found Banner - Suggests Instant Registration */}
+              {accountNotFoundNotice && (
+                <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900 shadow-xs">
+                  <p className="font-bold text-amber-950">No Kirana account found with this mobile number.</p>
+                  <p className="mt-1 text-amber-800">
+                    Would you like to register as a new Kirana store? It only takes 30 seconds to get your ₹50,000 credit line.
+                  </p>
                   <button
                     type="button"
-                    key={role}
-                    onClick={() => { setLoginRole(role); setLoginForm(DEMO_ACCOUNTS[role]); setError(''); }}
-                    className={`rounded-lg px-3 py-2.5 text-sm font-bold transition ${loginRole === role ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                    onClick={() => {
+                      setAuthTab('signup');
+                      setSignUpForm((prev) => ({ ...prev, phone: loginForm.phone }));
+                      setError('');
+                      setAccountNotFoundNotice(false);
+                    }}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-emerald-800 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-emerald-900 transition"
                   >
-                    {role === 'retailer' ? 'Retailer Portal' : 'Order Desk Portal'}
+                    <Store className="h-3.5 w-3.5" />
+                    Register Kirana Account with {loginForm.phone}
                   </button>
-                ))}
-              </div>
-              <form onSubmit={signIn} className="space-y-5">
-                <label className="block text-sm font-semibold text-slate-700">Mobile number
-                  <div className="mt-2 flex rounded-xl border border-slate-200 bg-white focus-within:border-emerald-400 focus-within:ring-4 focus-within:ring-emerald-50">
-                    <span className="flex items-center border-r border-slate-200 px-3 text-sm text-slate-500">+91</span>
-                    <input value={loginForm.phone} onChange={(event) => setLoginForm({ ...loginForm, phone: event.target.value })} inputMode="tel" autoComplete="tel" required className="min-w-0 flex-1 rounded-r-xl px-3 py-3.5 text-sm outline-none" />
+                </div>
+              )}
+
+              {authTab === 'signin' ? (
+                <>
+                  <div className="mb-5 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
+                    {(['retailer', 'desk'] as const).map((role) => (
+                      <button
+                        type="button"
+                        key={role}
+                        onClick={() => { setLoginRole(role); setLoginForm(DEMO_ACCOUNTS[role]); setError(''); setOtpNotice(''); setAccountNotFoundNotice(false); }}
+                        className={`rounded-lg px-3 py-2.5 text-xs font-bold transition ${loginRole === role ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                      >
+                        {role === 'retailer' ? 'Retailer Portal' : 'Order Desk Portal'}
+                      </button>
+                    ))}
                   </div>
-                </label>
-                <label className="block text-sm font-semibold text-slate-700">One-time password
-                  <input value={loginForm.otp} onChange={(event) => setLoginForm({ ...loginForm, otp: event.target.value })} inputMode="numeric" autoComplete="one-time-code" required className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3.5 text-sm tracking-[.25em] outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-50" />
-                </label>
-                {error && <ErrorBanner message={error} />}
-                <button disabled={loginBusy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0d5a40] px-4 py-3.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#094a35] disabled:cursor-wait disabled:opacity-70">
-                  {loginBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                  {loginBusy ? 'Signing in…' : `Continue as ${loginRole === 'retailer' ? 'Retailer' : 'Order Desk'}`}
-                </button>
-              </form>
-              <div className="mt-6 flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-500"><CircleHelp className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" /><span>Demo credentials: Retailer <b>9826011111</b>, Order Desk <b>9826000000</b>. OTP: <b>123456</b>.</span></div>
+
+                  <form onSubmit={signIn} className="space-y-4">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">Mobile number</label>
+                        <button
+                          type="button"
+                          disabled={sendingOtp || otpTimer > 0}
+                          onClick={() => void handleSendOtp(loginForm.phone)}
+                          className="text-xs font-bold text-emerald-700 hover:text-emerald-900 hover:underline disabled:opacity-60 disabled:hover:no-underline"
+                        >
+                          {sendingOtp ? 'Sending…' : otpTimer > 0 ? `Resend OTP in ${otpTimer}s` : 'Send OTP'}
+                        </button>
+                      </div>
+                      <div className="mt-1.5 flex rounded-xl border border-slate-200 bg-white focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-50">
+                        <span className="flex items-center border-r border-slate-200 px-3 text-sm font-semibold text-slate-600 bg-slate-50 rounded-l-xl">+91</span>
+                        <input
+                          value={loginForm.phone}
+                          onChange={(event) => setLoginForm({ ...loginForm, phone: event.target.value })}
+                          inputMode="tel"
+                          autoComplete="tel"
+                          placeholder="e.g. 9826011111"
+                          required
+                          className="min-w-0 flex-1 rounded-r-xl px-3 py-3 text-sm outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">One-time password (OTP)</label>
+                        <span className="text-[11px] text-slate-400">Dev code: 123456</span>
+                      </div>
+                      <div className="mt-1.5 relative flex items-center rounded-xl border border-slate-200 bg-white focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-50">
+                        <KeyRound className="absolute left-3.5 h-4 w-4 text-slate-400" />
+                        <input
+                          value={loginForm.otp}
+                          onChange={(event) => setLoginForm({ ...loginForm, otp: event.target.value })}
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          placeholder="6-digit code"
+                          required
+                          className="w-full rounded-xl pl-10 pr-4 py-3 text-sm tracking-[.2em] outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {error && <ErrorBanner message={error} />}
+
+                    <button
+                      type="submit"
+                      disabled={loginBusy}
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0d5a40] px-4 py-3.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#094a35] disabled:cursor-wait disabled:opacity-70"
+                    >
+                      {loginBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                      {loginBusy ? 'Signing in…' : `Continue as ${loginRole === 'retailer' ? 'Retailer' : 'Order Desk'}`}
+                    </button>
+                  </form>
+                </>
+              ) : (
+                /* CREATE ACCOUNT (SIGN UP) FORM */
+                <form onSubmit={signUp} className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">Owner Full Name</label>
+                      <div className="mt-1.5 relative flex items-center rounded-xl border border-slate-200 bg-white focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-50">
+                        <UserRound className="absolute left-3 h-4 w-4 text-slate-400" />
+                        <input
+                          value={signUpForm.fullName}
+                          onChange={(e) => setSignUpForm({ ...signUpForm, fullName: e.target.value })}
+                          placeholder="e.g. Rajesh Kumar"
+                          required
+                          className="w-full rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">Kirana / Shop Name</label>
+                      <div className="mt-1.5 relative flex items-center rounded-xl border border-slate-200 bg-white focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-50">
+                        <Store className="absolute left-3 h-4 w-4 text-slate-400" />
+                        <input
+                          value={signUpForm.storeName}
+                          onChange={(e) => setSignUpForm({ ...signUpForm, storeName: e.target.value })}
+                          placeholder="e.g. Kumar General Store"
+                          required
+                          className="w-full rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">Mobile Number</label>
+                      <button
+                        type="button"
+                        disabled={sendingOtp || otpTimer > 0}
+                        onClick={() => void handleSendOtp(signUpForm.phone)}
+                        className="text-xs font-bold text-emerald-700 hover:text-emerald-900 hover:underline disabled:opacity-60 disabled:hover:no-underline"
+                      >
+                        {sendingOtp ? 'Sending…' : otpTimer > 0 ? `Resend in ${otpTimer}s` : 'Get OTP'}
+                      </button>
+                    </div>
+                    <div className="mt-1.5 flex rounded-xl border border-slate-200 bg-white focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-50">
+                      <span className="flex items-center border-r border-slate-200 px-3 text-sm font-semibold text-slate-600 bg-slate-50 rounded-l-xl">+91</span>
+                      <input
+                        value={signUpForm.phone}
+                        onChange={(e) => setSignUpForm({ ...signUpForm, phone: e.target.value })}
+                        inputMode="tel"
+                        autoComplete="tel"
+                        placeholder="e.g. 9876543210"
+                        required
+                        className="min-w-0 flex-1 rounded-r-xl px-3 py-2.5 text-sm outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">City</label>
+                      <div className="mt-1.5 relative flex items-center rounded-xl border border-slate-200 bg-white focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-50">
+                        <MapPin className="absolute left-3 h-4 w-4 text-slate-400" />
+                        <input
+                          value={signUpForm.city}
+                          onChange={(e) => setSignUpForm({ ...signUpForm, city: e.target.value })}
+                          placeholder="Jabalpur"
+                          required
+                          className="w-full rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">GSTIN <span className="text-[10px] text-slate-400 font-normal">(Optional)</span></label>
+                      <div className="mt-1.5 relative flex items-center rounded-xl border border-slate-200 bg-white focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-50">
+                        <Building2 className="absolute left-3 h-4 w-4 text-slate-400" />
+                        <input
+                          value={signUpForm.gstNumber}
+                          onChange={(e) => setSignUpForm({ ...signUpForm, gstNumber: e.target.value })}
+                          placeholder="23AAAAA0000A1Z5"
+                          className="w-full rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">Shop Address / Landmark</label>
+                    <input
+                      value={signUpForm.address}
+                      onChange={(e) => setSignUpForm({ ...signUpForm, address: e.target.value })}
+                      placeholder="Shop No. 4, Main Road, Wright Town, Jabalpur"
+                      className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-50"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">Enter OTP Code</label>
+                      <span className="text-[11px] text-slate-400">Default code: 123456</span>
+                    </div>
+                    <div className="mt-1.5 relative flex items-center rounded-xl border border-slate-200 bg-white focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-50">
+                      <KeyRound className="absolute left-3.5 h-4 w-4 text-slate-400" />
+                      <input
+                        value={signUpForm.otp}
+                        onChange={(e) => setSignUpForm({ ...signUpForm, otp: e.target.value })}
+                        inputMode="numeric"
+                        placeholder="6-digit OTP code"
+                        required
+                        className="w-full rounded-xl pl-10 pr-4 py-2.5 text-sm tracking-[.2em] outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {error && <ErrorBanner message={error} />}
+
+                  <button
+                    type="submit"
+                    disabled={loginBusy}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0d5a40] px-4 py-3.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#094a35] disabled:cursor-wait disabled:opacity-70"
+                  >
+                    {loginBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                    {loginBusy ? 'Creating Kirana Account…' : 'Register & Start Ordering (₹50k Credit)'}
+                  </button>
+                  <p className="text-center text-[11px] text-slate-500">
+                    Starter credit line ₹50,000 allocated immediately upon OTP verification.
+                  </p>
+                </form>
+              )}
+
+              <div className="mt-6 flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-500">
+                <CircleHelp className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                <span>
+                  Demo quick credentials: Retailer <b>9826011111</b>, Order Desk <b>9826000000</b>. OTP: <b>123456</b>. Any new number can register via OTP.
+                </span>
+              </div>
             </div>
           </div>
         </div>
