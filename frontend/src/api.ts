@@ -299,6 +299,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith('/auth/login') && !path.startsWith('/auth/demo-login')) {
+      setToken(null);
+    }
     let message = `Request failed (${response.status})`;
     try {
       const body = await response.json() as { detail?: string | { msg?: string }[] };

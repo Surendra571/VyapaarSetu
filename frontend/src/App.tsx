@@ -266,6 +266,7 @@ function App() {
   }, []);
 
   const loadRetailerData = useCallback(async () => {
+    if (!getToken()) return;
     setDataLoading(true);
     setError('');
     try {
@@ -322,6 +323,7 @@ function App() {
   }, []);
 
   const loadDeskData = useCallback(async () => {
+    if (!getToken()) return;
     setDataLoading(true);
     setError('');
     try {
@@ -336,6 +338,7 @@ function App() {
   }, []);
 
   const loadVanData = useCallback(async () => {
+    if (!getToken()) return;
     setDataLoading(true);
     setError('');
     try {
@@ -349,6 +352,7 @@ function App() {
   }, [vanFromDate, vanToDate]);
 
   const loadInactivityData = useCallback(async (page = 1) => {
+    if (!getToken()) return;
     setDataLoading(true);
     setError('');
     try {
@@ -372,6 +376,14 @@ function App() {
 
   const showScreen = useCallback(
     (next: Screen, pushHistory = true) => {
+      if (!getToken() && next !== 'login') {
+        setScreen('login');
+        if (pushHistory && typeof window !== 'undefined' && window.location.pathname !== '/login') {
+          window.history.pushState({ screen: 'login' }, '', '/login');
+        }
+        return;
+      }
+
       // Guard screens by authenticated role
       let effectiveNext = next;
       const currentRole: LoginRole = user?.role === 'ROLE_ORDER_DESK' ? 'desk' : 'retailer';
@@ -592,6 +604,9 @@ function App() {
       setProducts([]);
       setOrders([]);
       setDeskOrders([]);
+      setExportBatches([]);
+      setVanData(null);
+      setInactivityData(null);
       setCart({});
       setCartPreview(null);
       showScreen('login');
