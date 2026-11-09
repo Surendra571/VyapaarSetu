@@ -6,6 +6,7 @@ Adheres strictly to business constraints:
 - Zero GST calculations
 """
 import asyncio
+from datetime import datetime, timezone
 from decimal import Decimal
 import uuid
 from sqlalchemy import select
@@ -20,18 +21,23 @@ from app.models import (
     SchemeRule,
     SKUAlias,
     AuditLog,
+    Order,
+    OrderItem,
+    OrderItemBenefit,
 )
 
 
 async def seed_demo_data():
-    """Seed synthetic master data, catalog, inventory, schemes and retailers."""
+    """Seed synthetic master data, catalog, inventory, schemes, retailers, and realistic demo orders."""
     async with AsyncSessionLocal() as session:
-        # Check if already seeded
+        # Check if master data already seeded
         existing_user = await session.execute(
             select(User).where(User.phone_number == "9826000000")
         )
         if existing_user.scalar_one_or_none():
-            print("Database already contains demo seed data. Skipping seed.")
+            print("Database already contains master demo seed data. Checking orders...")
+            await seed_demo_orders(session)
+            await session.commit()
             return
 
         print("Seeding synthetic demo data for VyapaarSetu (Jabalpur FMCG)...")
@@ -320,7 +326,225 @@ async def seed_demo_data():
         session.add(audit_init)
 
         await session.commit()
+        await seed_demo_orders(session)
+        await session.commit()
         print("Successfully seeded all synthetic demo data!")
+
+
+async def seed_demo_orders(session):
+    """Seed realistic demo orders for Order Desk verification (PENDING, CREDIT_HOLD, APPROVED)."""
+    existing_orders = await session.execute(select(Order).limit(1))
+    if existing_orders.scalar_one_or_none():
+        print("Database already contains orders. Skipping order seed.")
+        return
+
+    print("Seeding realistic demo orders for Order Desk verification...")
+    # Fetch required master references
+    desk_user = (await session.execute(select(User).where(User.phone_number == "9826000000"))).scalar_one_or_none()
+    ret1 = (await session.execute(select(Retailer).where(Retailer.retailer_code == "RET-JBP-001"))).scalar_one_or_none()
+    ret2 = (await session.execute(select(Retailer).where(Retailer.retailer_code == "RET-JBP-002"))).scalar_one_or_none()
+    prod_biscuit = (await session.execute(select(Product).where(Product.sku_code == "SKU-BS-075"))).scalar_one_or_none()
+    prod_detergent = (await session.execute(select(Product).where(Product.sku_code == "SKU-DT-1KG"))).scalar_one_or_none()
+    scheme_biscuit = (await session.execute(select(Scheme).where(Scheme.scheme_code == "SCH-BS-10P1"))).scalar_one_or_none()
+    scheme_detergent = (await session.execute(select(Scheme).where(Scheme.scheme_code == "SCH-DT-5DISC3"))).scalar_one_or_none()
+
+    if not (desk_user and ret1 and ret2 and prod_biscuit and prod_detergent):
+        print("Missing master records needed for demo orders. Skipping order seed.")
+        return
+
+    # --------------------------------------------------------------------------
+    # ORDER 1: PENDING_DESK_APPROVAL (Patel Kirana)
+    # Includes schemes: Buy 10 Get 1 Free on Biscuits, 3% discount on Detergent
+    # --------------------------------------------------------------------------
+    ord1_id = uuid.uuid4()
+    order1 = Order(
+        id=ord1_id,
+        order_number="ORD-2026-001",
+        retailer_id=ret1.id,
+        status="PENDING_DESK_APPROVAL",
+        subtotal_excl_gst=Decimal("20624.40"),
+        credit_hold_reason=None,
+        desk_notes="Kirana app order. Review scheme free-goods benefits and stock allocation.",
+    )
+    # Line 1: 12 cases Glucose Biscuit (qualifies for Buy 10 Get 1 Free)
+    item1_1 = OrderItem(
+        id=uuid.uuid4(),
+        order_id=ord1_id,
+        product_id=prod_biscuit.id,
+        ordered_qty=12,
+        approved_qty=12,
+        uom_type="CASE",
+        applied_scheme_id=scheme_biscuit.id if scheme_biscuit else None,
+        scheme_discount_amount=Decimal("0.00"),
+        free_item_qty=1,
+        line_subtotal_excl_gst=Decimal("9100.80"),
+        product_name_snapshot="Glucose Biscuit 75g",
+        sku_code_snapshot="SKU-BS-075",
+        price_per_unit_snapshot=Decimal("7.90"),
+        price_basis_snapshot="UNRESOLVED_PACK_OR_CASE",
+        scheme_name_snapshot="Buy 10 Cases Biscuit Get 1 Case Free",
+        free_product_name_snapshot="Glucose Biscuit 75g",
+        free_sku_code_snapshot="SKU-BS-075",
+    )
+    benefit1_1 = OrderItemBenefit(
+        id=uuid.uuid4(),
+        order_item=item1_1,
+        scheme_id=scheme_biscuit.id if scheme_biscuit else None,
+        scheme_name="Buy 10 Cases Biscuit Get 1 Case Free",
+        benefit_type="FREE_GOODS",
+        awarded_product_id=prod_biscuit.id,
+        awarded_sku_code="SKU-BS-075",
+        awarded_product_name="Glucose Biscuit 75g",
+        awarded_quantity=1,
+        awarded_uom="CASE",
+        discount_amount=Decimal("0.00"),
+        calculation_details="Ordered 12 cases >= 10 cases threshold. 1 promotional free case awarded.",
+    )
+    # Line 2: 6 cases Detergent Powder (qualifies for 3% volume discount)
+    item1_2 = OrderItem(
+        id=uuid.uuid4(),
+        order_id=ord1_id,
+        product_id=prod_detergent.id,
+        ordered_qty=6,
+        approved_qty=6,
+        uom_type="CASE",
+        applied_scheme_id=scheme_detergent.id if scheme_detergent else None,
+        scheme_discount_amount=Decimal("356.40"),
+        free_item_qty=0,
+        line_subtotal_excl_gst=Decimal("11523.60"),
+        product_name_snapshot="Detergent Powder 1kg",
+        sku_code_snapshot="SKU-DT-1KG",
+        price_per_unit_snapshot=Decimal("99.00"),
+        price_basis_snapshot="UNRESOLVED_PACK_OR_CASE",
+        scheme_name_snapshot="3% Volume Discount on 5+ Detergent Cases",
+        discount_percentage_snapshot=Decimal("3.00"),
+    )
+    benefit1_2 = OrderItemBenefit(
+        id=uuid.uuid4(),
+        order_item=item1_2,
+        scheme_id=scheme_detergent.id if scheme_detergent else None,
+        scheme_name="3% Volume Discount on 5+ Detergent Cases",
+        benefit_type="SLAB_DISCOUNT",
+        awarded_product_id=None,
+        awarded_quantity=0,
+        awarded_uom="CASE",
+        discount_amount=Decimal("356.40"),
+        calculation_details="Ordered 6 cases >= 5 cases threshold. 3% discount applied to line subtotal.",
+    )
+    audit1 = AuditLog(
+        id=uuid.uuid4(),
+        entity_name="Order",
+        entity_id=str(ord1_id),
+        action="CREATE",
+        order=order1,
+        user_id=ret1.user_id,
+        reason="Retailer submitted order via VyapaarSetu App",
+        new_values={"order_number": "ORD-2026-001", "status": "PENDING_DESK_APPROVAL", "total_excl_gst": "20624.40"},
+    )
+    session.add_all([order1, item1_1, benefit1_1, item1_2, benefit1_2, audit1])
+
+    # --------------------------------------------------------------------------
+    # ORDER 2: CREDIT_HOLD (Agrawal Provision)
+    # Order total (₹17,730.00) exceeds remaining available credit (₹7,500.00)
+    # --------------------------------------------------------------------------
+    ord2_id = uuid.uuid4()
+    order2 = Order(
+        id=ord2_id,
+        order_number="ORD-2026-002",
+        retailer_id=ret2.id,
+        status="CREDIT_HOLD",
+        subtotal_excl_gst=Decimal("17730.00"),
+        credit_hold_reason="Order total (₹17,730.00) exceeds available credit limit (₹7,500.00)",
+        desk_notes="Requires supervisor credit override or partial advance payment before release.",
+    )
+    item2_1 = OrderItem(
+        id=uuid.uuid4(),
+        order_id=ord2_id,
+        product_id=prod_detergent.id,
+        ordered_qty=9,
+        approved_qty=9,
+        uom_type="CASE",
+        applied_scheme_id=None,
+        scheme_discount_amount=Decimal("0.00"),
+        free_item_qty=0,
+        line_subtotal_excl_gst=Decimal("17730.00"),
+        product_name_snapshot="Detergent Powder 1kg",
+        sku_code_snapshot="SKU-DT-1KG",
+        price_per_unit_snapshot=Decimal("98.50"),
+        price_basis_snapshot="UNRESOLVED_PACK_OR_CASE",
+    )
+    audit2 = AuditLog(
+        id=uuid.uuid4(),
+        entity_name="Order",
+        entity_id=str(ord2_id),
+        action="HOLD",
+        order=order2,
+        user_id=ret2.user_id,
+        reason="Credit check failed: outstanding balance ₹92,500 + order ₹17,730 exceeds ₹100,000 credit limit",
+        new_values={"order_number": "ORD-2026-002", "status": "CREDIT_HOLD", "credit_limit": "100000.00", "outstanding": "92500.00"},
+    )
+    session.add_all([order2, item2_1, audit2])
+
+    # --------------------------------------------------------------------------
+    # ORDER 3: APPROVED (Patel Kirana)
+    # Ready for Van Loading and Tally Export
+    # --------------------------------------------------------------------------
+    ord3_id = uuid.uuid4()
+    order3 = Order(
+        id=ord3_id,
+        order_number="ORD-2026-003",
+        retailer_id=ret1.id,
+        status="APPROVED",
+        subtotal_excl_gst=Decimal("7584.00"),
+        desk_notes="Approved for Zone 1 morning van dispatch.",
+        approved_by_user_id=desk_user.id,
+        approved_at=datetime.now(timezone.utc),
+    )
+    item3_1 = OrderItem(
+        id=uuid.uuid4(),
+        order_id=ord3_id,
+        product_id=prod_biscuit.id,
+        ordered_qty=10,
+        approved_qty=10,
+        uom_type="CASE",
+        applied_scheme_id=scheme_biscuit.id if scheme_biscuit else None,
+        scheme_discount_amount=Decimal("0.00"),
+        free_item_qty=1,
+        line_subtotal_excl_gst=Decimal("7584.00"),
+        product_name_snapshot="Glucose Biscuit 75g",
+        sku_code_snapshot="SKU-BS-075",
+        price_per_unit_snapshot=Decimal("7.90"),
+        price_basis_snapshot="UNRESOLVED_PACK_OR_CASE",
+        scheme_name_snapshot="Buy 10 Cases Biscuit Get 1 Case Free",
+        free_product_name_snapshot="Glucose Biscuit 75g",
+        free_sku_code_snapshot="SKU-BS-075",
+    )
+    benefit3_1 = OrderItemBenefit(
+        id=uuid.uuid4(),
+        order_item=item3_1,
+        scheme_id=scheme_biscuit.id if scheme_biscuit else None,
+        scheme_name="Buy 10 Cases Biscuit Get 1 Case Free",
+        benefit_type="FREE_GOODS",
+        awarded_product_id=prod_biscuit.id,
+        awarded_sku_code="SKU-BS-075",
+        awarded_product_name="Glucose Biscuit 75g",
+        awarded_quantity=1,
+        awarded_uom="CASE",
+        discount_amount=Decimal("0.00"),
+        calculation_details="Buy 10 Get 1 Free promotional rule verified and approved.",
+    )
+    audit3 = AuditLog(
+        id=uuid.uuid4(),
+        entity_name="Order",
+        entity_id=str(ord3_id),
+        action="APPROVE",
+        order=order3,
+        user_id=desk_user.id,
+        reason="Order Desk approved lines and allocated stock for van dispatch",
+        new_values={"order_number": "ORD-2026-003", "status": "APPROVED", "approved_qty_cases": 10, "free_cases": 1},
+    )
+    session.add_all([order3, item3_1, benefit3_1, audit3])
+    print("Successfully seeded 3 realistic demo orders (PENDING, CREDIT_HOLD, APPROVED)!")
 
 
 if __name__ == "__main__":

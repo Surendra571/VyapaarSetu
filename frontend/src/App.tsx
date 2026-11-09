@@ -55,8 +55,11 @@ import type {
 import type { Product, Scheme } from './types';
 
 export type Screen = 'login' | 'catalogue' | 'cart' | 'ai' | 'orders' | 'desk' | 'van' | 'inactivity' | 'exports' | 'account';
-type LoginRole = 'retailer' | 'desk';
-type LoginState = 'loading' | 'ready';
+export type LoginRole = 'retailer' | 'desk';
+export type LoginState = 'loading' | 'ready';
+
+export const DESK_SCREENS: Screen[] = ['desk', 'van', 'inactivity', 'exports', 'account'];
+export const RETAILER_SCREENS: Screen[] = ['catalogue', 'cart', 'ai', 'orders', 'account'];
 
 export const getScreenFromPath = (pathname: string): Screen => {
   const clean = pathname.replace(/^\/+/, '').split('?')[0].split('#')[0].toLowerCase();
@@ -369,19 +372,30 @@ function App() {
 
   const showScreen = useCallback(
     (next: Screen, pushHistory = true) => {
-      setScreen(next);
+      // Guard screens by authenticated role
+      let effectiveNext = next;
+      const currentRole: LoginRole = user?.role === 'ROLE_ORDER_DESK' ? 'desk' : 'retailer';
+      if (user) {
+        if (currentRole === 'desk' && !DESK_SCREENS.includes(next)) {
+          effectiveNext = 'desk';
+        } else if (currentRole === 'retailer' && !RETAILER_SCREENS.includes(next)) {
+          effectiveNext = 'catalogue';
+        }
+      }
+
+      setScreen(effectiveNext);
       setError('');
       setNotice('');
-      const targetPath = getPathFromScreen(next);
+      const targetPath = getPathFromScreen(effectiveNext);
       if (pushHistory && typeof window !== 'undefined' && window.location.pathname !== targetPath) {
-        window.history.pushState({ screen: next }, '', targetPath);
+        window.history.pushState({ screen: effectiveNext }, '', targetPath);
       }
-      if (next === 'orders') void loadRetailerData();
-      if (next === 'desk' || next === 'exports') void loadDeskData();
-      if (next === 'van') void loadVanData();
-      if (next === 'inactivity') void loadInactivityData(1);
+      if (effectiveNext === 'orders') void loadRetailerData();
+      if (effectiveNext === 'desk' || effectiveNext === 'exports') void loadDeskData();
+      if (effectiveNext === 'van') void loadVanData();
+      if (effectiveNext === 'inactivity') void loadInactivityData(1);
     },
-    [loadDeskData, loadInactivityData, loadRetailerData, loadVanData],
+    [user, loadDeskData, loadInactivityData, loadRetailerData, loadVanData],
   );
 
   useEffect(() => {
@@ -411,14 +425,17 @@ function App() {
           const searchParams = new URLSearchParams(window.location.search);
           const redirect = searchParams.get('redirect');
           if (redirect && redirect.startsWith('/') && redirect !== '/login') {
-            targetScreen = getScreenFromPath(redirect);
+            const parsed = getScreenFromPath(redirect);
+            targetScreen = roleName === 'desk'
+              ? (DESK_SCREENS.includes(parsed) ? parsed : 'desk')
+              : (RETAILER_SCREENS.includes(parsed) ? parsed : 'catalogue');
           } else {
             targetScreen = roleName === 'desk' ? 'desk' : 'catalogue';
           }
-        } else if (roleName === 'retailer' && ['desk', 'van', 'inactivity', 'exports'].includes(targetScreen)) {
+        } else if (roleName === 'retailer' && !RETAILER_SCREENS.includes(targetScreen)) {
           targetScreen = 'catalogue';
           setError('Desk screens are restricted to Order Desk operators.');
-        } else if (roleName === 'desk' && ['cart', 'ai'].includes(targetScreen)) {
+        } else if (roleName === 'desk' && !DESK_SCREENS.includes(targetScreen)) {
           targetScreen = 'desk';
         }
 
@@ -505,6 +522,30 @@ function App() {
     0,
   );
 
+  const quickSignIn = async (roleToLogin: LoginRole) => {
+    const creds = DEMO_ACCOUNTS[roleToLogin];
+    setLoginForm(creds);
+    setLoginRole(roleToLogin);
+    setLoginBusy(true);
+    setError('');
+    try {
+      const response = await api.login(creds.phone, creds.otp);
+      setToken(response.access_token);
+      setUser(response.user);
+      const roleName = response.user.role === 'ROLE_ORDER_DESK' ? 'desk' : 'retailer';
+      setLoginRole(roleName);
+
+      const targetScreen: Screen = roleName === 'desk' ? 'desk' : 'catalogue';
+      showScreen(targetScreen);
+      await loadUserData(response.user);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoginBusy(false);
+      setLoginState('ready');
+    }
+  };
+
   const signIn = async (event: FormEvent) => {
     event.preventDefault();
     setLoginBusy(true);
@@ -521,10 +562,10 @@ function App() {
       let targetScreen: Screen = roleName === 'desk' ? 'desk' : 'catalogue';
       if (redirect && redirect.startsWith('/') && redirect !== '/login') {
         const parsed = getScreenFromPath(redirect);
-        if (roleName === 'retailer' && !['desk', 'van', 'inactivity', 'exports'].includes(parsed)) {
-          targetScreen = parsed;
-        } else if (roleName === 'desk' && !['cart', 'ai'].includes(parsed)) {
-          targetScreen = parsed;
+        if (roleName === 'desk') {
+          targetScreen = DESK_SCREENS.includes(parsed) ? parsed : 'desk';
+        } else {
+          targetScreen = RETAILER_SCREENS.includes(parsed) ? parsed : 'catalogue';
         }
       }
 
@@ -1063,14 +1104,52 @@ function App() {
                 <h2 className="mt-2 text-3xl font-extrabold tracking-[-.04em] text-slate-900">Sign in to your account</h2>
                 <p className="mt-2 text-sm leading-6 text-slate-500">Use your registered mobile number to continue.</p>
               </div>
+              {/* 1-Click Instant Login Cards */}
+              <div className="mb-6 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3.5">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-900">
+                    <Sparkles className="h-3.5 w-3.5 text-emerald-700" />
+                    One-Click Demo Access
+                  </span>
+                  <span className="text-[10px] font-semibold text-emerald-700">Jabalpur FMCG</span>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    disabled={loginBusy}
+                    onClick={() => void quickSignIn('retailer')}
+                    className="tap-button flex items-center justify-between rounded-xl bg-white px-3 py-2.5 text-left shadow-xs border border-emerald-100 hover:border-emerald-300 transition"
+                  >
+                    <div>
+                      <span className="block text-xs font-extrabold text-slate-800">Ramesh Patel</span>
+                      <span className="block text-[10px] font-semibold text-emerald-700">Retailer (Patel Kirana)</span>
+                    </div>
+                    <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loginBusy}
+                    onClick={() => void quickSignIn('desk')}
+                    className="tap-button flex items-center justify-between rounded-xl bg-white px-3 py-2.5 text-left shadow-xs border border-emerald-100 hover:border-emerald-300 transition"
+                  >
+                    <div>
+                      <span className="block text-xs font-extrabold text-slate-800">Sanjay Sharma</span>
+                      <span className="block text-[10px] font-semibold text-emerald-700">Order Desk Supervisor</span>
+                    </div>
+                    <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
+                  </button>
+                </div>
+              </div>
+
               <div className="mb-6 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
                 {(['retailer', 'desk'] as const).map((role) => (
                   <button
+                    type="button"
                     key={role}
                     onClick={() => { setLoginRole(role); setLoginForm(DEMO_ACCOUNTS[role]); setError(''); }}
                     className={`rounded-lg px-3 py-2.5 text-sm font-bold transition ${loginRole === role ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                   >
-                    {role === 'retailer' ? 'Retailer' : 'Order desk'}
+                    {role === 'retailer' ? 'Retailer Portal' : 'Order Desk Portal'}
                   </button>
                 ))}
               </div>
@@ -1087,10 +1166,10 @@ function App() {
                 {error && <ErrorBanner message={error} />}
                 <button disabled={loginBusy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0d5a40] px-4 py-3.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#094a35] disabled:cursor-wait disabled:opacity-70">
                   {loginBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                  {loginBusy ? 'Signing in…' : 'Continue securely'}
+                  {loginBusy ? 'Signing in…' : `Continue as ${loginRole === 'retailer' ? 'Retailer' : 'Order Desk'}`}
                 </button>
               </form>
-              <div className="mt-6 flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-500"><CircleHelp className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" /><span>Demo access: retailer <b>9826011111</b>, order desk <b>9826000000</b>. OTP: <b>123456</b>.</span></div>
+              <div className="mt-6 flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-500"><CircleHelp className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" /><span>Demo credentials: Retailer <b>9826011111</b>, Order Desk <b>9826000000</b>. OTP: <b>123456</b>.</span></div>
             </div>
           </div>
         </div>
@@ -2248,11 +2327,41 @@ function App() {
     <div className="rounded-[22px] border border-slate-200 bg-white p-4 sm:p-6"><h3 className="text-lg font-extrabold text-slate-900">Export history</h3>{exportBatches.length ? <div className="mt-4 divide-y divide-slate-100">{exportBatches.map((batch) => <div key={batch.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><span><b className="block text-sm text-slate-800">{batch.batch_number}</b><span className="text-xs text-slate-500">{batch.file_name} · {batch.order_count} order(s) · {formatMoney(batch.total_amount_excl_gst)}</span></span><button onClick={() => void downloadBatch(batch)} disabled={busy} className="tap-button inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><ArrowDownToLine className="h-4 w-4" />Download</button></div>)}</div> : <p className="mt-3 text-sm text-slate-500">No export batches generated yet.</p>}</div>
   </section>;
 
-  const renderAccount = () => <section className="max-w-2xl rounded-[22px] border border-slate-200 bg-white p-5 sm:p-7">
-    <div className="flex items-center gap-4"><div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-800"><UserRound className="h-6 w-6" /></div><div><h2 className="text-xl font-extrabold text-slate-900">{user.full_name}</h2><p className="mt-1 text-sm text-slate-500">{role === 'retailer' ? retailerName : 'Order Desk'} · +91 {user.phone_number}</p></div></div>
-    {retailer && <div className="mt-6 grid gap-3 sm:grid-cols-2"><InfoField label="Store" value={retailer.store_name} /><InfoField label="Retailer code" value={retailer.retailer_code} /><InfoField label="Credit limit" value={formatMoney(retailer.credit_limit)} /><InfoField label="Outstanding" value={formatMoney(retailer.outstanding_amount)} /><InfoField label="Available credit" value={formatMoney(retailer.available_credit)} /><InfoField label="Pricing tier" value={retailer.pricing_tier.replace(/_/g, ' ')} /></div>}
-    <button onClick={() => void signOut()} className="tap-button mt-6 inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800 hover:bg-rose-100"><LogOut className="h-4 w-4" />Sign out</button>
-  </section>;
+  const renderAccount = () => (
+    <section className="max-w-2xl rounded-[22px] border border-slate-200 bg-white p-5 sm:p-7 shadow-xs">
+      <div className="flex items-center gap-4">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-800 font-extrabold text-lg">
+          {user.full_name.split(' ').map((part) => part[0]).slice(0, 2).join('')}
+        </div>
+        <div>
+          <h2 className="text-xl font-extrabold text-slate-900">{user.full_name}</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {role === 'retailer' ? retailerName : 'Order Desk Supervisor'} · +91 {user.phone_number}
+          </p>
+        </div>
+      </div>
+      {retailer ? (
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <InfoField label="Store" value={retailer.store_name} />
+          <InfoField label="Retailer code" value={retailer.retailer_code} />
+          <InfoField label="Credit limit" value={formatMoney(retailer.credit_limit)} />
+          <InfoField label="Outstanding" value={formatMoney(retailer.outstanding_amount)} />
+          <InfoField label="Available credit" value={formatMoney(retailer.available_credit)} />
+          <InfoField label="Pricing tier" value={retailer.pricing_tier.replace(/_/g, ' ')} />
+        </div>
+      ) : (
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <InfoField label="Role" value="Order Desk Supervisor / Ops Lead" />
+          <InfoField label="Station" value="Jabalpur FMCG Distribution HQ" />
+          <InfoField label="Queue access" value="Approval, Credit Hold Override, Van Dispatch" />
+          <InfoField label="Accounting" value="Tally ERP XML/CSV Exporter Enabled" />
+        </div>
+      )}
+      <button onClick={() => void signOut()} className="tap-button mt-6 inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800 hover:bg-rose-100">
+        <LogOut className="h-4 w-4" />Sign out
+      </button>
+    </section>
+  );
 
   return (
     <div className="app-shell min-h-screen bg-[#f6f8f6] text-slate-800">
@@ -2273,10 +2382,14 @@ function App() {
         <header className="app-header sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200/70 bg-white/90 px-4 py-3.5 backdrop-blur-xl sm:px-6">
           <div className="relative min-w-0 flex-1">
             <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search products… (e.g. biscuit, detergent)" className="w-full max-w-[680px] rounded-full border border-slate-200 bg-[#fafbfa] py-2.5 pl-10 pr-4 text-sm outline-none placeholder:text-slate-400 focus:border-emerald-300" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={role === 'retailer' ? 'Search products… (e.g. biscuit, detergent)' : 'Filter by order, retailer, or SKU…'} className="w-full max-w-[680px] rounded-full border border-slate-200 bg-[#fafbfa] py-2.5 pl-10 pr-4 text-sm outline-none placeholder:text-slate-400 focus:border-emerald-300" />
           </div>
           <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white px-2 py-1.5 sm:flex"><div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0f5a40] text-[10px] font-extrabold text-white">{user.full_name.split(' ').map((part) => part[0]).slice(0, 2).join('')}</div><div className="max-w-[170px]"><p className="truncate text-xs font-bold text-slate-800">{retailerName}</p><p className="text-[10px] text-slate-500">{role === 'retailer' ? retailer?.city || 'Jabalpur, MP' : 'Order desk'}</p></div><button onClick={() => showScreen('account')} aria-label="Open account" className="p-1 text-slate-500"><ChevronDown className="h-4 w-4" /></button></div>
-          <button onClick={() => showScreen('cart')} className="tap-button relative flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:text-emerald-800"><ShoppingBag className="h-4 w-4" />{cartCount > 0 && <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">{cartCount}</span>}</button>
+          {role === 'retailer' ? (
+            <button onClick={() => showScreen('cart')} aria-label="Shopping cart" className="tap-button relative flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:text-emerald-800"><ShoppingBag className="h-4 w-4" />{cartCount > 0 && <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">{cartCount}</span>}</button>
+          ) : (
+            <button onClick={() => showScreen('desk')} aria-label="Order Desk Queue" className="tap-button inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100"><BriefcaseBusiness className="h-3.5 w-3.5 text-emerald-700" /><span>Queue ({deskOrders.filter((o) => o.status === 'PENDING_DESK_APPROVAL' || o.status === 'CREDIT_HOLD').length})</span></button>
+          )}
         </header>
         <div className="page-content mx-auto max-w-[1500px] px-3 pb-24 pt-4 sm:px-5 sm:pt-5 lg:px-7">
           <div className="mb-4 flex items-center justify-between gap-3"><div><p className="text-[11px] font-semibold text-slate-500">{role === 'retailer' ? 'Retailer portal' : 'Distributor portal'} <span className="px-1 text-slate-300">/</span> Jabalpur</p><h1 className="mt-0.5 text-xl font-extrabold tracking-[-.035em] text-slate-900">{titleMap[screen]}</h1></div>{dataLoading && <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />Updating</span>}</div>
