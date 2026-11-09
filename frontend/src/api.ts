@@ -446,6 +446,11 @@ export const api = {
       body: JSON.stringify({ reason }),
     }),
 
+  clearSampleOrders: () =>
+    request<{ status: string; message: string }>('/desk/orders/clear-sample-data', {
+      method: 'POST',
+    }),
+
   vanLoadingList: (fromDate?: string, toDate?: string) => {
     const params = new URLSearchParams();
     if (fromDate) params.append('from_date', fromDate);

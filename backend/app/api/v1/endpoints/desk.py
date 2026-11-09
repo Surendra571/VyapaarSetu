@@ -672,3 +672,31 @@ async def export_inactive_retailers_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@router.post(
+    "/desk/orders/clear-sample-data",
+    summary="Clear all sample orders and reset balances (Production State)",
+    description="Removes all sample/demo orders, order lines, and benefits, resetting credit ledgers to clean 0.00 outstanding. Requires Order Desk supervisor role.",
+)
+async def clear_sample_orders(
+    current_user: User = Depends(require_order_desk),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import text
+    await db.execute(text("DELETE FROM order_item_benefits;"))
+    await db.execute(text("DELETE FROM order_items;"))
+    await db.execute(text("DELETE FROM audit_logs WHERE entity_name = 'Order';"))
+    await db.execute(text("DELETE FROM export_batches;"))
+    await db.execute(text("DELETE FROM orders;"))
+    await db.execute(text("""
+        UPDATE retailers
+        SET outstanding_amount = 0.00,
+            available_credit = credit_limit,
+            is_credit_locked = FALSE;
+    """))
+    await db.commit()
+    return {
+        "status": "success",
+        "message": "All sample/demo orders cleared successfully. App is now in clean empty-orders production state.",
+    }

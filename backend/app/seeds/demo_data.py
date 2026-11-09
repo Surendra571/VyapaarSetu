@@ -6,6 +6,7 @@ Adheres strictly to business constraints:
 - Zero GST calculations
 """
 import asyncio
+import os
 from datetime import datetime, timezone
 from decimal import Decimal
 import uuid
@@ -35,12 +36,13 @@ async def seed_demo_data():
             select(User).where(User.phone_number == "9826000000")
         )
         if existing_user.scalar_one_or_none():
-            print("Database already contains master demo seed data. Checking orders...")
-            await seed_demo_orders(session)
-            await session.commit()
+            print("Database already contains master data. (No sample orders seeded).")
+            if os.getenv("SEED_DEMO_ORDERS", "false").lower() == "true":
+                await seed_demo_orders(session)
+                await session.commit()
             return
 
-        print("Seeding synthetic demo data for VyapaarSetu (Jabalpur FMCG)...")
+        print("Seeding production master data for VyapaarSetu (Jabalpur FMCG)...")
 
         # ----------------------------------------------------------------------
         # 1. Users & Retailers
@@ -326,13 +328,16 @@ async def seed_demo_data():
         session.add(audit_init)
 
         await session.commit()
-        await seed_demo_orders(session)
-        await session.commit()
-        print("Successfully seeded all synthetic demo data!")
+        if os.getenv("SEED_DEMO_ORDERS", "false").lower() == "true":
+            await seed_demo_orders(session)
+            await session.commit()
+        print("Successfully seeded master data! (No sample orders seeded; ready for fresh production orders).")
 
 
 async def seed_demo_orders(session):
-    """Seed realistic demo orders for Order Desk verification (PENDING, CREDIT_HOLD, APPROVED)."""
+    """Seed demo orders if explicitly requested via SEED_DEMO_ORDERS=true."""
+    if os.getenv("SEED_DEMO_ORDERS", "false").lower() != "true":
+        return
     existing_orders = await session.execute(select(Order).limit(1))
     if existing_orders.scalar_one_or_none():
         print("Database already contains orders. Skipping order seed.")
