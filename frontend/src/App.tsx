@@ -232,9 +232,29 @@ function App() {
   const [aiMode, setAiMode] = useState<'text' | 'photo' | 'voice'>('text');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [voiceFile, setVoiceFile] = useState<File | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
+  const [voiceAudioUrl, setVoiceAudioUrl] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
+  useEffect(() => {
+    if (photoFile) {
+      const url = URL.createObjectURL(photoFile);
+      setPhotoPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setPhotoPreviewUrl(null);
+  }, [photoFile]);
+
+  useEffect(() => {
+    if (voiceFile) {
+      const url = URL.createObjectURL(voiceFile);
+      setVoiceAudioUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setVoiceAudioUrl(null);
+  }, [voiceFile]);
 
   // Repeat Order Preview Modal
   const [repeatPreview, setRepeatPreview] = useState<RepeatOrderPreviewResponse | null>(null);
@@ -418,8 +438,12 @@ function App() {
     if (!getToken()) {
       setLoginState('ready');
       if (initialScreen !== 'login') {
-        const redirectParam = encodeURIComponent(initialPath + (window.location.search || ''));
-        window.history.replaceState({ screen: 'login' }, '', `/login?redirect=${redirectParam}`);
+        if (initialPath !== '/' && initialPath !== '/catalogue') {
+          const redirectParam = encodeURIComponent(initialPath + (window.location.search || ''));
+          window.history.replaceState({ screen: 'login' }, '', `/login?redirect=${redirectParam}`);
+        } else {
+          window.history.replaceState({ screen: 'login' }, '', '/login');
+        }
         setScreen('login');
       }
       return () => { active = false; };
@@ -740,7 +764,12 @@ function App() {
 
   const capturePhotoOrder = async () => {
     if (!photoFile) {
-      setError('Please select or capture a photo of the handwritten order first.');
+      setError('Please select or capture a photo of the handwritten order slip first.');
+      return;
+    }
+    const validImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    if (!validImageTypes.includes(photoFile.type.toLowerCase()) && !/\.(jpe?g|png|webp)$/i.test(photoFile.name)) {
+      setError('Unsupported file type. Please upload a clear photo of your handwritten slip in JPEG, PNG, or WebP format.');
       return;
     }
     setBusy(true);
@@ -749,6 +778,10 @@ function App() {
     setReviewedLines([]);
     try {
       const result = await api.capturePhoto(photoFile);
+      if (!result.lines || result.lines.length === 0) {
+        setError('No grocery items could be recognized in this photo. Please make sure the handwriting is clear and well-lit, then try again.');
+        return;
+      }
       setCapture(result);
       setCaptureResolution(Object.fromEntries(result.lines.map((line) => [
         line.id,
@@ -763,7 +796,12 @@ function App() {
       ])));
       setNotice('Handwritten order image processed! Review each SKU, quantity, and unit before adding to cart.');
     } catch (photoError) {
-      setError(errorMessage(photoError));
+      const msg = errorMessage(photoError);
+      if (msg.includes('500') || msg.toLowerCase().includes('failed') || msg.toLowerCase().includes('error')) {
+        setError('Could not process this image. Please upload a clear photo of a handwritten grocery order slip.');
+      } else {
+        setError(msg);
+      }
     } finally {
       setBusy(false);
     }
@@ -806,12 +844,22 @@ function App() {
       setError('Please record or select an audio recording first.');
       return;
     }
+    const validAudioExts = ['.webm', '.mp3', '.wav', '.ogg', '.m4a'];
+    const isAudio = voiceFile.type.startsWith('audio/') || validAudioExts.some((ext) => voiceFile.name.toLowerCase().endsWith(ext));
+    if (!isAudio) {
+      setError('Unsupported audio file. Please record or upload an audio note in MP3, WAV, WebM, or M4A format.');
+      return;
+    }
     setBusy(true);
     setError('');
     setCapture(null);
     setReviewedLines([]);
     try {
       const result = await api.captureVoice(voiceFile);
+      if (!result.lines || result.lines.length === 0) {
+        setError('No order items could be recognized in this audio. Please speak clearly (e.g. "bhaiya 5 peti biscuit, 2 peti detergent") and try again.');
+        return;
+      }
       setCapture(result);
       setCaptureResolution(Object.fromEntries(result.lines.map((line) => [
         line.id,
@@ -826,7 +874,12 @@ function App() {
       ])));
       setNotice('Hindi/Hinglish audio transcribed & processed! Please review each detected line.');
     } catch (voiceError) {
-      setError(errorMessage(voiceError));
+      const msg = errorMessage(voiceError);
+      if (msg.includes('500') || msg.toLowerCase().includes('failed') || msg.toLowerCase().includes('error')) {
+        setError('Could not transcribe audio. Please record or upload a clear voice note with item names and quantities.');
+      } else {
+        setError(msg);
+      }
     } finally {
       setBusy(false);
     }
@@ -1108,7 +1161,7 @@ function App() {
                 </div>
               )}
 
-              {!user && redirectParam && (
+              {!user && redirectParam && redirectParam !== '/' && redirectParam !== '/catalogue' && redirectParam !== '/login' && (
                 <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
                   Please sign in to access <span className="font-bold underline">{redirectParam}</span>.
                 </div>
@@ -1478,10 +1531,17 @@ function App() {
               }}
               className="mt-3 block w-full text-xs text-slate-500 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-2 file:text-xs file:font-bold file:text-emerald-800 hover:file:bg-emerald-100"
             />
-            {photoFile && (
-              <p className="mt-2 text-xs font-semibold text-emerald-800">
-                Selected: {photoFile.name} ({(photoFile.size / 1024).toFixed(1)} KB)
-              </p>
+            {photoFile && photoPreviewUrl && (
+              <div className="mt-3 flex flex-col items-center">
+                <img
+                  src={photoPreviewUrl}
+                  alt="Selected order slip"
+                  className="max-h-44 rounded-xl border border-slate-200 object-contain shadow-xs bg-white p-1"
+                />
+                <p className="mt-1.5 text-xs font-semibold text-emerald-800">
+                  {photoFile.name} ({(photoFile.size / 1024).toFixed(1)} KB)
+                </p>
+              </div>
             )}
             <button
               disabled={busy || !photoFile}
@@ -1540,10 +1600,13 @@ function App() {
               </label>
             </div>
 
-            {voiceFile && (
-              <p className="mt-3 text-xs font-semibold text-emerald-800">
-                Audio ready: {voiceFile.name} ({(voiceFile.size / 1024).toFixed(1)} KB)
-              </p>
+            {voiceFile && voiceAudioUrl && (
+              <div className="mt-3 flex flex-col items-center rounded-xl bg-emerald-50/60 p-3 border border-emerald-100 max-w-md mx-auto">
+                <p className="text-xs font-semibold text-emerald-800">
+                  {voiceFile.name} ({(voiceFile.size / 1024).toFixed(1)} KB)
+                </p>
+                <audio controls src={voiceAudioUrl} className="mt-2 w-full" />
+              </div>
             )}
 
             <button
@@ -1559,6 +1622,38 @@ function App() {
 
         {capture && (
           <div className="mt-6 border-t border-slate-200 pt-5">
+            {aiMode === 'photo' && photoPreviewUrl && (
+              <div className="mb-5 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                    <Camera className="h-4 w-4 text-emerald-700" />
+                    Uploaded Handwritten Slip
+                  </span>
+                  <span className="text-[11px] text-slate-500">Cross-check handwriting with detected lines below</span>
+                </div>
+                <div className="flex max-h-72 justify-center overflow-auto rounded-xl bg-slate-50 p-2 border border-slate-100">
+                  <img
+                    src={photoPreviewUrl}
+                    alt="Uploaded handwritten slip"
+                    className="max-h-64 rounded-lg object-contain shadow-sm"
+                  />
+                </div>
+              </div>
+            )}
+
+            {aiMode === 'voice' && voiceAudioUrl && (
+              <div className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 shadow-xs">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-900">
+                    <Mic className="h-4 w-4 text-emerald-700" />
+                    Listen to Voice Recording
+                  </span>
+                  <span className="text-[11px] font-semibold text-emerald-700">Audio playback</span>
+                </div>
+                <audio controls src={voiceAudioUrl} className="w-full mt-1" />
+              </div>
+            )}
+
             <div className="mb-3 flex items-end justify-between gap-3">
               <div>
                 <h3 className="text-lg font-extrabold text-slate-900">Suggested order lines</h3>

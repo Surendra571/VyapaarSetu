@@ -184,17 +184,25 @@ async def capture_order_photo(
             detail=f"Image size ({len(image_bytes)} bytes) exceeds the maximum allowed limit of 10MB.",
         )
 
-    capture = await AICaptureService.process_photo_order(
-        session=db,
-        retailer=retailer,
-        image_bytes=image_bytes,
-        mime_type=normalized_mime,
-        filename=filename,
-    )
-    full_capture = await AICaptureService.get_capture_by_id(db, capture.id, retailer.id)
-    if not full_capture:
-        raise HTTPException(status_code=500, detail="Failed to retrieve saved AI capture session.")
-    return _serialize_capture(full_capture)
+    try:
+        capture = await AICaptureService.process_photo_order(
+            session=db,
+            retailer=retailer,
+            image_bytes=image_bytes,
+            mime_type=normalized_mime,
+            filename=filename,
+        )
+        full_capture = await AICaptureService.get_capture_by_id(db, capture.id, retailer.id)
+        if not full_capture:
+            raise HTTPException(status_code=500, detail="Failed to retrieve saved AI capture session.")
+        return _serialize_capture(full_capture)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not detect legible grocery order items in this photo. Please upload a clear photo of your handwritten grocery order slip.",
+        )
 
 
 @router.post(
@@ -250,17 +258,25 @@ async def capture_order_voice(
             detail=f"Audio recording size ({len(audio_bytes)} bytes) exceeds the maximum allowed limit of 25MB.",
         )
 
-    capture = await AICaptureService.process_voice_order(
-        session=db,
-        retailer=retailer,
-        audio_bytes=audio_bytes,
-        mime_type=normalized_mime,
-        filename=filename,
-    )
-    full_capture = await AICaptureService.get_capture_by_id(db, capture.id, retailer.id)
-    if not full_capture:
-        raise HTTPException(status_code=500, detail="Failed to retrieve saved AI capture session.")
-    return _serialize_capture(full_capture)
+    try:
+        capture = await AICaptureService.process_voice_order(
+            session=db,
+            retailer=retailer,
+            audio_bytes=audio_bytes,
+            mime_type=normalized_mime,
+            filename=filename,
+        )
+        full_capture = await AICaptureService.get_capture_by_id(db, capture.id, retailer.id)
+        if not full_capture:
+            raise HTTPException(status_code=500, detail="Failed to retrieve saved AI capture session.")
+        return _serialize_capture(full_capture)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not understand the voice note clearly. Please upload or record a clear audio note with product names and quantities.",
+        )
 
 
 @router.get(
