@@ -1,6 +1,9 @@
 import type { Product, Scheme } from './types';
 
-const API_BASE = '/api/v1';
+const envUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
+const API_BASE = envUrl
+  ? (envUrl.endsWith('/api/v1') ? envUrl : `${envUrl}/api/v1`)
+  : '/api/v1';
 const TOKEN_KEY = 'vyapaar_access_token';
 
 export interface Paginated<T> {

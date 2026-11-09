@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": "https://vyapaarsetu-2.onrender.com/api/$1"
+    },
+    {
+      "source": "/images/(.*)",
+      "destination": "https://vyapaarsetu-2.onrender.com/images/$1"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
