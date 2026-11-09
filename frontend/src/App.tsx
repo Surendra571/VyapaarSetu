@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowDownToLine,
   ArrowRight,
   BadgeCheck,
@@ -235,8 +236,31 @@ function App() {
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [voiceAudioUrl, setVoiceAudioUrl] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [uploadErrorModal, setUploadErrorModal] = useState<{
+    mode: 'photo' | 'voice' | 'general';
+    title: string;
+    message: string;
+  } | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
+  const retryPhotoUpload = () => {
+    setUploadErrorModal(null);
+    setError('');
+    setPhotoFile(null);
+    setCapture(null);
+    setTimeout(() => {
+      photoInputRef.current?.click();
+    }, 100);
+  };
+
+  const retryVoiceUpload = () => {
+    setUploadErrorModal(null);
+    setError('');
+    setVoiceFile(null);
+    setCapture(null);
+  };
 
   useEffect(() => {
     if (photoFile) {
@@ -779,7 +803,13 @@ function App() {
     try {
       const result = await api.capturePhoto(photoFile);
       if (!result.lines || result.lines.length === 0) {
-        setError('No grocery items could be recognized in this photo. Please make sure the handwriting is clear and well-lit, then try again.');
+        const noLinesMsg = 'Your upload is incorrect. No grocery items could be recognized in this photo. Please make sure the handwriting is clear and well-lit, then try again.';
+        setError(noLinesMsg);
+        setUploadErrorModal({
+          mode: 'photo',
+          title: 'Incorrect Order Photo',
+          message: noLinesMsg,
+        });
         return;
       }
       setCapture(result);
@@ -797,11 +827,15 @@ function App() {
       setNotice('Handwritten order image processed! Review each SKU, quantity, and unit before adding to cart.');
     } catch (photoError) {
       const msg = errorMessage(photoError);
-      if (msg && !msg.startsWith('Request failed (500)')) {
-        setError(msg);
-      } else {
-        setError('Your upload is incorrect. Please upload a clear photo of a handwritten grocery order slip.');
-      }
+      const cleanMsg = msg && !msg.startsWith('Request failed (500)')
+        ? msg
+        : 'Your upload is incorrect. The uploaded photo is not a valid grocery order slip. Please upload a clear photo of your handwritten grocery order.';
+      setError(cleanMsg);
+      setUploadErrorModal({
+        mode: 'photo',
+        title: 'Incorrect Order Slip Photo',
+        message: cleanMsg,
+      });
     } finally {
       setBusy(false);
     }
@@ -857,7 +891,13 @@ function App() {
     try {
       const result = await api.captureVoice(voiceFile);
       if (!result.lines || result.lines.length === 0) {
-        setError('No order items could be recognized in this audio. Please speak clearly (e.g. "bhaiya 5 peti biscuit, 2 peti detergent") and try again.');
+        const noLinesMsg = 'Your upload is incorrect. No order items could be recognized in this audio. Please speak clearly (e.g. "bhaiya 5 peti biscuit, 2 peti detergent") and try again.';
+        setError(noLinesMsg);
+        setUploadErrorModal({
+          mode: 'voice',
+          title: 'Voice Note Not Recognized',
+          message: noLinesMsg,
+        });
         return;
       }
       setCapture(result);
@@ -875,11 +915,15 @@ function App() {
       setNotice('Hindi/Hinglish audio transcribed & processed! Please review each detected line.');
     } catch (voiceError) {
       const msg = errorMessage(voiceError);
-      if (msg && !msg.startsWith('Request failed (500)')) {
-        setError(msg);
-      } else {
-        setError('Your upload is incorrect. Please record or upload a clear voice note with item names and quantities.');
-      }
+      const cleanMsg = msg && !msg.startsWith('Request failed (500)')
+        ? msg
+        : 'Your upload is incorrect. No grocery order items could be recognized in this audio. Please record a clear voice note with product names and quantities.';
+      setError(cleanMsg);
+      setUploadErrorModal({
+        mode: 'voice',
+        title: 'Voice Note Not Recognized',
+        message: cleanMsg,
+      });
     } finally {
       setBusy(false);
     }
@@ -1521,6 +1565,7 @@ function App() {
             <h4 className="mt-2 text-sm font-bold text-slate-800">Upload handwritten order photo</h4>
             <p className="mt-1 text-xs text-slate-500">JPEG, PNG, or WebP up to 10MB. Clear handwriting recommended.</p>
             <input
+              ref={photoInputRef}
               type="file"
               accept="image/jpeg,image/png,image/webp"
               onChange={(e) => {
@@ -1528,6 +1573,8 @@ function App() {
                 setPhotoFile(file);
                 setCapture(null);
                 setReviewedLines([]);
+                setError('');
+                setUploadErrorModal(null);
               }}
               className="mt-3 block w-full text-xs text-slate-500 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-2 file:text-xs file:font-bold file:text-emerald-800 hover:file:bg-emerald-100"
             />
@@ -1594,6 +1641,8 @@ function App() {
                     setVoiceFile(file);
                     setCapture(null);
                     setReviewedLines([]);
+                    setError('');
+                    setUploadErrorModal(null);
                   }}
                   className="hidden"
                 />
@@ -2503,7 +2552,26 @@ function App() {
         </header>
         <div className="page-content mx-auto max-w-[1500px] px-3 pb-24 pt-4 sm:px-5 sm:pt-5 lg:px-7">
           <div className="mb-4 flex items-center justify-between gap-3"><div><p className="text-[11px] font-semibold text-slate-500">{role === 'retailer' ? 'Retailer portal' : 'Distributor portal'} <span className="px-1 text-slate-300">/</span> Jabalpur</p><h1 className="mt-0.5 text-xl font-extrabold tracking-[-.035em] text-slate-900">{titleMap[screen]}</h1></div>{dataLoading && <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />Updating</span>}</div>
-          {error && <div className="mb-4"><ErrorBanner message={error} onDismiss={() => setError('')} /></div>}
+          {error && (
+            <div className="mb-4">
+              <ErrorBanner
+                message={error}
+                onDismiss={() => {
+                  setError('');
+                  setUploadErrorModal(null);
+                }}
+                onRetry={() => {
+                  if (aiMode === 'photo') {
+                    retryPhotoUpload();
+                  } else if (aiMode === 'voice') {
+                    retryVoiceUpload();
+                  } else {
+                    setError('');
+                  }
+                }}
+              />
+            </div>
+          )}
           {!isOnline && (
             <div className="mb-4 flex items-center justify-between rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900 shadow-xs">
               <span className="flex items-center gap-2">
@@ -2539,6 +2607,19 @@ function App() {
           {screen === 'exports' && renderExports()}
           {screen === 'account' && renderAccount()}
           {renderRepeatOrderModal()}
+          {uploadErrorModal && (
+            <AppAlertModal
+              error={uploadErrorModal}
+              onDismiss={() => setUploadErrorModal(null)}
+              onRetry={() => {
+                if (uploadErrorModal.mode === 'photo') {
+                  retryPhotoUpload();
+                } else {
+                  retryVoiceUpload();
+                }
+              }}
+            />
+          )}
         </div>
       </main>
       <nav className="mobile-nav fixed inset-x-0 bottom-0 z-40 grid border-t border-slate-200 bg-white/95 px-1 pb-[env(safe-area-inset-bottom)] pt-1.5 backdrop-blur-lg md:hidden" style={{ gridTemplateColumns: `repeat(${Math.min(visibleNav.length, 5)}, minmax(0, 1fr))` }}>
@@ -2567,8 +2648,187 @@ function InfoField({ label, value }: { label: string; value: string }) {
   return <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-[.1em] text-slate-500">{label}</p><p className="mt-1 text-sm font-bold text-slate-800">{value}</p></div>;
 }
 
-function ErrorBanner({ message, onDismiss }: { message: string; onDismiss?: () => void }) {
-  return <div role="alert" className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3 text-sm text-rose-900"><span className="flex items-start gap-2"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{message}</span>{onDismiss && <button onClick={onDismiss} aria-label="Dismiss error"><X className="h-4 w-4" /></button>}</div>;
+function ErrorBanner({
+  message,
+  onDismiss,
+  onRetry,
+}: {
+  message: string;
+  onDismiss?: () => void;
+  onRetry?: () => void;
+}) {
+  const isIncorrectUpload =
+    message.toLowerCase().includes('incorrect') ||
+    message.toLowerCase().includes('not a valid grocery order') ||
+    message.toLowerCase().includes('no grocery order');
+
+  return (
+    <div
+      role="alert"
+      className="relative overflow-hidden rounded-2xl border border-rose-200 bg-white p-4 shadow-sm shadow-rose-200/40"
+    >
+      <div className="flex items-start gap-3.5">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500 to-rose-600 text-white shadow-md shadow-rose-500/25">
+          <AlertCircle className="h-5 w-5" />
+        </div>
+        <div className="flex-1 pr-4">
+          <div className="flex items-center gap-2">
+            <span className="rounded-md bg-rose-100 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-rose-800">
+              {isIncorrectUpload ? 'Upload Alert' : 'Attention'}
+            </span>
+            <h4 className="text-sm font-bold text-slate-900">
+              {isIncorrectUpload ? 'Incorrect Order Upload' : 'Notice'}
+            </h4>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-slate-600">{message}</p>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="tap-button mt-2.5 inline-flex items-center gap-1.5 rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Try again with correct slip
+            </button>
+          )}
+        </div>
+        {onDismiss && (
+          <button
+            onClick={onDismiss}
+            aria-label="Dismiss error"
+            className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AppAlertModal({
+  error,
+  onDismiss,
+  onRetry,
+}: {
+  error: { mode: 'photo' | 'voice' | 'general'; title: string; message: string };
+  onDismiss: () => void;
+  onRetry: () => void;
+}) {
+  const isPhoto = error.mode === 'photo';
+  const isVoice = error.mode === 'voice';
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/65 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onDismiss();
+      }}
+    >
+      <div className="relative w-full max-w-md overflow-hidden rounded-3xl bg-white p-6 shadow-2xl ring-1 ring-slate-900/10 transition-all animate-in zoom-in-95 duration-200">
+        <button
+          onClick={onDismiss}
+          className="absolute right-4 top-4 rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+          aria-label="Close alert"
+        >
+          <X className="h-5 w-5" />
+        </button>
+
+        <div className="flex flex-col items-center text-center">
+          <div className="relative mb-3 flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-rose-500 via-rose-600 to-amber-500 text-white shadow-xl shadow-rose-500/30 ring-8 ring-rose-50">
+            {isPhoto ? (
+              <Camera className="h-10 w-10 text-white" />
+            ) : isVoice ? (
+              <Mic className="h-10 w-10 text-white" />
+            ) : (
+              <AlertTriangle className="h-10 w-10 text-white" />
+            )}
+            <span className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-rose-600 text-white ring-4 ring-white">
+              <X className="h-4 w-4 stroke-[3]" />
+            </span>
+          </div>
+
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-rose-800">
+            Upload Alert
+          </span>
+
+          <h3 className="mt-2 text-xl font-black tracking-tight text-slate-900">
+            {error.title}
+          </h3>
+
+          <p className="mt-2 text-xs leading-relaxed text-slate-600 max-w-sm">
+            {error.message}
+          </p>
+        </div>
+
+        <div className="mt-5 rounded-2xl bg-amber-50/70 border border-amber-200/80 p-4 text-left">
+          <p className="flex items-center gap-2 text-xs font-bold text-amber-900">
+            <Sparkles className="h-4 w-4 text-amber-600" />
+            Tips for Kirana Order Detection:
+          </p>
+          <ul className="mt-2 space-y-1.5 text-[11px] text-amber-950/85">
+            {isPhoto ? (
+              <>
+                <li className="flex items-start gap-2">
+                  <span className="font-bold text-emerald-700">✓</span>
+                  <span><strong>Handwritten Grocery Slip:</strong> Include item name & quantity (e.g. <em>5 peti biscuit, 2 kg surf</em>).</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="font-bold text-emerald-700">✓</span>
+                  <span><strong>Lighting & Angle:</strong> Capture straight from above with good light, avoiding shadows.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="font-bold text-rose-600">✕</span>
+                  <span><strong>Avoid:</strong> Selfies, scenery, vehicles, blank paper, or blurry scribbles.</span>
+                </li>
+              </>
+            ) : isVoice ? (
+              <>
+                <li className="flex items-start gap-2">
+                  <span className="font-bold text-emerald-700">✓</span>
+                  <span><strong>Speak Items & Units:</strong> Clearly say <em>"5 peti Parle-G chhota, 2 peti detergent powder"</em>.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="font-bold text-emerald-700">✓</span>
+                  <span><strong>Language:</strong> Hindi, Hinglish, or English are all recognized.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="font-bold text-rose-600">✕</span>
+                  <span><strong>Avoid:</strong> Loud background noise/music or greetings without item names.</span>
+                </li>
+              </>
+            ) : (
+              <>
+                <li className="flex items-start gap-2">
+                  <span className="font-bold text-emerald-700">✓</span>
+                  <span>Provide clear FMCG product names and quantities.</span>
+                </li>
+              </>
+            )}
+          </ul>
+        </div>
+
+        <div className="mt-6 flex flex-col sm:flex-row gap-2.5">
+          <button
+            type="button"
+            onClick={onRetry}
+            className="tap-button flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#0d5b40] to-[#137a56] px-5 py-3.5 text-sm font-bold text-white shadow-lg shadow-emerald-900/20 hover:from-[#094732] hover:to-[#0d5b40] transition"
+          >
+            {isPhoto ? <Camera className="h-4 w-4" /> : isVoice ? <Mic className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+            {isPhoto ? 'Upload Correct Photo' : isVoice ? 'Record Voice Again' : 'Try Again'}
+          </button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="tap-button inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 px-5 py-3.5 text-sm font-bold text-slate-700 hover:bg-slate-200 transition"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function LoadingState({ label }: { label: string }) {
