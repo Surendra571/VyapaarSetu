@@ -444,14 +444,33 @@ export const api = {
     return response.blob();
   },
 
-  inactiveRetailers: (days: number = 14, search?: string, page: number = 1, pageSize: number = 50) => {
+  inactiveRetailers: async (days: number = 14, search?: string, page: number = 1, pageSize: number = 50): Promise<InactiveRetailersResponse> => {
     const params = new URLSearchParams({
       days: days.toString(),
       page: page.toString(),
       page_size: pageSize.toString(),
     });
     if (search) params.append('search', search);
-    return request<InactiveRetailersResponse>(`/desk/retailers/inactive?${params.toString()}`);
+    const raw = await request<Record<string, unknown>>(`/desk/retailers/inactive?${params.toString()}`);
+    const rawItems = (raw.items || raw.retailers || []) as InactiveRetailerItem[];
+    const inactiveCount = typeof raw.inactive_retailers_count === 'number'
+      ? raw.inactive_retailers_count
+      : typeof raw.total_inactive_retailers === 'number'
+      ? raw.total_inactive_retailers
+      : rawItems.length;
+    const totalCount = typeof raw.total_retailers_count === 'number'
+      ? raw.total_retailers_count
+      : inactiveCount;
+
+    return {
+      threshold_days: typeof raw.threshold_days === 'number' ? raw.threshold_days : days,
+      inactive_retailers_count: inactiveCount,
+      total_retailers_count: totalCount,
+      items: rawItems,
+      page: typeof raw.page === 'number' ? raw.page : page,
+      page_size: typeof raw.page_size === 'number' ? raw.page_size : pageSize,
+      total_pages: typeof raw.total_pages === 'number' ? raw.total_pages : 1,
+    };
   },
 
   downloadInactiveRetailersCsv: async (days: number = 14): Promise<Blob> => {
