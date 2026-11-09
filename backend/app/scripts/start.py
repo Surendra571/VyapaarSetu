@@ -61,6 +61,16 @@ def main():
                     res.stderr.strip(),
                     res.stdout.strip(),
                 )
+                if "password authentication failed" in res.stderr.lower():
+                    logger.error(
+                        "\n"
+                        "================================================================================\n"
+                        "[DATABASE AUTHENTICATION ERROR]\n"
+                        "PostgreSQL rejected your credentials ('password authentication failed').\n"
+                        "Please verify the username and password in your Render DATABASE_URL.\n"
+                        "In Neon, copy the connection string directly from your Neon Console.\n"
+                        "================================================================================\n"
+                    )
         except subprocess.TimeoutExpired:
             logger.error("[STARTUP ERROR] Alembic migration timed out after 25s. Continuing to start web server...")
         except Exception as exc:
