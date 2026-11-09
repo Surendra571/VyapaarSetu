@@ -911,13 +911,7 @@ function App() {
     try {
       const result = await api.capturePhoto(photoFile);
       if (!result.lines || result.lines.length === 0) {
-        const noLinesMsg = 'No grocery items could be recognized in this photo. Please ensure item names and quantities are visible, or enter items manually.';
-        setError(noLinesMsg);
-        setUploadErrorModal({
-          mode: 'photo',
-          title: 'Items Not Detected',
-          message: noLinesMsg,
-        });
+        setError('No grocery items recognized in this photo. Please ensure item names are visible or enter items manually.');
         return;
       }
       setCapture(result);
@@ -935,15 +929,7 @@ function App() {
       setNotice('Handwritten order image processed! Review each SKU, quantity, and unit before adding to cart.');
     } catch (photoError) {
       const msg = errorMessage(photoError);
-      const cleanMsg = msg && !msg.startsWith('Request failed (500)')
-        ? msg
-        : 'Could not extract grocery items from this photo. Please check the image or enter items manually.';
-      setError(cleanMsg);
-      setUploadErrorModal({
-        mode: 'photo',
-        title: 'Review Order Photo',
-        message: cleanMsg,
-      });
+      setError(msg || 'Could not process photo order. Please check the image or enter items manually.');
     } finally {
       setBusy(false);
     }
@@ -999,13 +985,7 @@ function App() {
     try {
       const result = await api.captureVoice(voiceFile);
       if (!result.lines || result.lines.length === 0) {
-        const noLinesMsg = 'No order items could be recognized in this audio. Please mention product names and quantities, or enter items manually.';
-        setError(noLinesMsg);
-        setUploadErrorModal({
-          mode: 'voice',
-          title: 'Order Items Not Detected',
-          message: noLinesMsg,
-        });
+        setError('No order items recognized in this audio. Please mention product names and quantities, or enter items manually.');
         return;
       }
       setCapture(result);
@@ -1023,15 +1003,7 @@ function App() {
       setNotice('Hindi/Hinglish audio transcribed & processed! Please review each detected line.');
     } catch (voiceError) {
       const msg = errorMessage(voiceError);
-      const cleanMsg = msg && !msg.startsWith('Request failed (500)')
-        ? msg
-        : 'Could not extract grocery items from this recording. Please try speaking product names and quantities, or enter items manually.';
-      setError(cleanMsg);
-      setUploadErrorModal({
-        mode: 'voice',
-        title: 'Voice Note Review',
-        message: cleanMsg,
-      });
+      setError(msg || 'Could not process voice recording. Please speak product names and quantities or enter items manually.');
     } finally {
       setBusy(false);
     }

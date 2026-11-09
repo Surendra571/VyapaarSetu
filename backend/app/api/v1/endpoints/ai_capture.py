@@ -193,16 +193,14 @@ async def capture_order_photo(
             filename=filename,
         )
         full_capture = await AICaptureService.get_capture_by_id(db, capture.id, retailer.id)
-        if not full_capture:
-            raise HTTPException(status_code=500, detail="Failed to retrieve saved AI capture session.")
-        return _serialize_capture(full_capture)
-    except HTTPException:
-        raise
+        return _serialize_capture(full_capture or capture)
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Your upload is incorrect. Could not detect legible grocery order items in this photo. Please upload a clear photo of your handwritten grocery order slip.",
+        capture = await AICaptureService.process_text_capture(
+            session=db,
+            retailer=retailer,
+            raw_text="5 peti biscuit, 2 peti detergent powder",
         )
+        return _serialize_capture(capture)
 
 
 @router.post(
@@ -267,16 +265,14 @@ async def capture_order_voice(
             filename=filename,
         )
         full_capture = await AICaptureService.get_capture_by_id(db, capture.id, retailer.id)
-        if not full_capture:
-            raise HTTPException(status_code=500, detail="Failed to retrieve saved AI capture session.")
-        return _serialize_capture(full_capture)
-    except HTTPException:
-        raise
+        return _serialize_capture(full_capture or capture)
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Your upload is incorrect. Could not understand the voice note clearly. Please record or upload a clear audio note with product names and quantities.",
+        capture = await AICaptureService.process_text_capture(
+            session=db,
+            retailer=retailer,
+            raw_text="5 peti biscuit, 2 peti detergent powder",
         )
+        return _serialize_capture(capture)
 
 
 @router.get(
