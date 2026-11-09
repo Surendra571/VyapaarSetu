@@ -31,9 +31,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install system dependencies (curl for container health checks)
+# Install system dependencies (curl for container health checks, ca-certificates for TLS/SSL)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies

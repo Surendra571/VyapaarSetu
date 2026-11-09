@@ -14,9 +14,10 @@ from app.core.config import settings
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
-    pool_pre_ping=False,
+    pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
+    connect_args={"timeout": 10},
 )
 
 # Async Session Factory

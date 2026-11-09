@@ -44,14 +44,46 @@ def main():
         logger.info("[STARTUP] Database connection established at %s:%s.", db_host, db_port)
         logger.info("[STARTUP] Applying Alembic database migrations to head...")
         try:
-            subprocess.run(["alembic", "upgrade", "head"], check=True)
-            logger.info("[STARTUP] Migrations applied successfully.")
+            res = subprocess.run(
+                ["alembic", "upgrade", "head"],
+                capture_output=True,
+                text=True,
+                timeout=25,
+            )
+            if res.returncode == 0:
+                logger.info("[STARTUP] Migrations applied successfully.")
+                if res.stdout.strip():
+                    logger.info("[STARTUP] Alembic output:\n%s", res.stdout.strip())
+            else:
+                logger.error(
+                    "[STARTUP ERROR] Alembic migration failed (exit code %d).\nSTDERR: %s\nSTDOUT: %s",
+                    res.returncode,
+                    res.stderr.strip(),
+                    res.stdout.strip(),
+                )
+        except subprocess.TimeoutExpired:
+            logger.error("[STARTUP ERROR] Alembic migration timed out after 25s. Continuing to start web server...")
         except Exception as exc:
-            logger.error("[STARTUP ERROR] Alembic migration failed: %s", exc)
+            logger.error("[STARTUP ERROR] Alembic migration encountered error: %s. Continuing startup...", exc)
 
         logger.info("[STARTUP] Checking demo data seeder...")
         try:
-            subprocess.run([sys.executable, "-m", "app.seeds.demo_data"], check=False)
+            res = subprocess.run(
+                [sys.executable, "-m", "app.seeds.demo_data"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if res.returncode == 0:
+                logger.info("[STARTUP] Demo data checked/seeded successfully.")
+            else:
+                logger.warning(
+                    "[STARTUP WARNING] Seed returned non-zero (%d): %s",
+                    res.returncode,
+                    res.stderr.strip() or res.stdout.strip(),
+                )
+        except subprocess.TimeoutExpired:
+            logger.warning("[STARTUP WARNING] Demo data seeder timed out after 15s. Continuing startup...")
         except Exception as exc:
             logger.warning("[STARTUP WARNING] Seed script skipped: %s", exc)
     else:

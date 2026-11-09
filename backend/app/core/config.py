@@ -68,9 +68,38 @@ class Settings(BaseSettings):
                 url = "postgresql+asyncpg://" + url[len("postgres://"):]
             elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
                 url = "postgresql+asyncpg://" + url[len("postgresql://"):]
-            # Normalize sslmode to ssl for asyncpg
-            if "sslmode=require" in url:
-                url = url.replace("sslmode=require", "ssl=require")
+
+            try:
+                from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+                parsed = urlparse(url)
+                qs = parse_qs(parsed.query)
+
+                # Allowed asyncpg connection parameters
+                allowed_keys = {"ssl", "timeout", "command_timeout", "server_settings"}
+                new_qs = {}
+
+                # Map sslmode -> ssl for asyncpg compatibility
+                if "sslmode" in qs:
+                    mode = qs["sslmode"][0].lower()
+                    if mode in ("require", "verify-ca", "verify-full", "prefer"):
+                        new_qs["ssl"] = ["require"]
+                    elif mode in ("disable", "allow"):
+                        new_qs["ssl"] = ["disable"]
+
+                for k, vals in qs.items():
+                    if k in allowed_keys and k not in new_qs:
+                        new_qs[k] = vals
+
+                # If connecting to a remote host and ssl is not explicitly configured, require SSL
+                is_local = parsed.hostname in (None, "", "localhost", "127.0.0.1", "::1", "db", "postgres")
+                if not is_local and "ssl" not in new_qs:
+                    new_qs["ssl"] = ["require"]
+
+                new_query = urlencode(new_qs, doseq=True)
+                url = urlunparse(parsed._replace(query=new_query))
+            except Exception:
+                pass
+
             return url
         return str(v)
 
