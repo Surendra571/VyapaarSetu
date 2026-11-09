@@ -675,7 +675,12 @@ async def export_inactive_retailers_csv(
 
 
 @router.post(
-    "/desk/orders/clear-sample-data",
+    "/orders/clear-sample-data",
+    summary="Clear all sample orders and reset balances (Production State)",
+    description="Removes all sample/demo orders, order lines, and benefits, resetting credit ledgers to clean 0.00 outstanding. Requires Order Desk supervisor role.",
+)
+@router.delete(
+    "/orders/clear-sample-data",
     summary="Clear all sample orders and reset balances (Production State)",
     description="Removes all sample/demo orders, order lines, and benefits, resetting credit ledgers to clean 0.00 outstanding. Requires Order Desk supervisor role.",
 )
