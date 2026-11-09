@@ -77,7 +77,11 @@ class AICaptureService:
 
         user_prompt = f"{system_instruction}\n\nExtract all order items from this WhatsApp message:\n\n\"{raw_text}\""
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent"
+        gemini_model = settings.GEMINI_MODEL
+        if not gemini_model or "3.5" in gemini_model:
+            gemini_model = "gemini-1.5-flash"
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent"
         body = {
             "contents": [{"parts": [{"text": user_prompt}]}],
             "generationConfig": {
@@ -779,8 +783,11 @@ class AICaptureService:
         api_key = settings.GEMINI_API_KEY
         if api_key and len(image_bytes) > 0:
             try:
+                gemini_model = settings.GEMINI_MODEL
+                if not gemini_model or "3.5" in gemini_model:
+                    gemini_model = "gemini-1.5-flash"
                 b64_image = base64.b64encode(image_bytes).decode("utf-8")
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={api_key}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={api_key}"
                 payload = {
                     "contents": [
                         {
@@ -821,7 +828,7 @@ class AICaptureService:
             # High-accuracy fallback for Jabalpur kirana handwritten list
             extracted_text = "5 peti biscuit chhota, 2 peti washing powder 1 kilo, chai patti 250 wala 1 peti"
 
-        return await cls.process_order_message(
+        return await cls.process_text_capture(
             session=session,
             retailer=retailer,
             raw_text=extracted_text,
@@ -846,8 +853,11 @@ class AICaptureService:
         api_key = settings.GEMINI_API_KEY
         if api_key and len(audio_bytes) > 0:
             try:
+                gemini_model = settings.GEMINI_MODEL
+                if not gemini_model or "3.5" in gemini_model:
+                    gemini_model = "gemini-1.5-flash"
                 b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={api_key}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={api_key}"
                 payload = {
                     "contents": [
                         {
@@ -887,9 +897,12 @@ class AICaptureService:
             # Fallback transcription for Hindi voice note
             transcribed_text = "bhaiya 5 peti biscuit chhota, 2 peti washing powder 1 kilo, chai patti 250 wala 1 peti"
 
-        return await cls.process_order_message(
+        return await cls.process_text_capture(
             session=session,
             retailer=retailer,
             raw_text=transcribed_text,
         )
+
+    # Class-level aliases for backwards compatibility
+    process_order_message = process_text_capture
 

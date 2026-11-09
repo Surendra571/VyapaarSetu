@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vyapaarsetu-v1';
+const CACHE_NAME = 'vyapaarsetu-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -10,29 +10,42 @@ const STATIC_ASSETS = [
 // Install: Cache core application shell
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    }).then(() => self.skipWaiting())
+    caches
+      .open(CACHE_NAME)
+      .then((cache) => cache.addAll(STATIC_ASSETS))
+      .then(() => self.skipWaiting())
+      .catch((err) => {
+        console.warn('Service worker pre-caching encountered an error:', err);
+      })
   );
 });
 
-// Activate: Purge old cache versions
+// Activate: Purge old cache versions and claim clients
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-      );
-    }).then(() => self.clients.claim())
+    caches
+      .keys()
+      .then((keys) => {
+        return Promise.all(
+          keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+        );
+      })
+      .then(() => self.clients.claim())
   );
 });
 
 // Fetch: Network-first for APIs, Cache-first for static assets, fallback to index.html for navigation
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+
+  // Ignore non-HTTP/HTTPS requests (e.g., chrome-extension://, data:, blob:)
+  if (!request.url.startsWith('http')) {
+    return;
+  }
+
   const url = new URL(request.url);
 
-  // For API calls, do network-only or network-first
+  // 1. API Requests: Network-first with graceful offline 503 JSON fallback
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(request).catch(() => {
@@ -48,36 +61,75 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigation requests: serve index.html from cache if offline
+  // 2. Navigation Requests: Network-first for SPA routes with cached index.html fallback
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => {
-        return caches.match('/index.html') || caches.match('/');
-      })
+      fetch(request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseClone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put('/index.html', responseClone).catch(() => {});
+            });
+          }
+          return networkResponse;
+        })
+        .catch(async () => {
+          const cachedIndex = (await caches.match('/index.html')) || (await caches.match('/'));
+          if (cachedIndex) {
+            return cachedIndex;
+          }
+          return new Response(
+            '<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px;">' +
+            '<h2>VyapaarSetu is currently offline</h2><p>Please check your internet connection.</p>' +
+            '</body></html>',
+            { status: 503, headers: { 'Content-Type': 'text/html' } }
+          );
+        })
     );
     return;
   }
 
-  // Static assets: Cache-first, fallback to network
+  // 3. For non-GET requests (e.g. form uploads, mutations), pass straight through to network
+  if (request.method !== 'GET') {
+    return;
+  }
+
+  // 4. Static Assets: Cache-first, fallback to network with resilient error catching
   event.respondWith(
-    caches.match(request).then((cachedResponse) => {
+    caches.match(request).then(async (cachedResponse) => {
       if (cachedResponse) {
         return cachedResponse;
       }
-      return fetch(request).then((networkResponse) => {
+
+      try {
+        const networkResponse = await fetch(request);
         if (
-          !networkResponse ||
-          networkResponse.status !== 200 ||
-          networkResponse.type !== 'basic'
+          networkResponse &&
+          networkResponse.status === 200 &&
+          (networkResponse.type === 'basic' || networkResponse.type === 'cors')
         ) {
-          return networkResponse;
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(request, responseToCache).catch(() => {});
+          });
         }
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(request, responseToCache);
-        });
         return networkResponse;
-      });
+      } catch (fetchErr) {
+        // If network failed and asset is not cached, return fallback image if applicable
+        if (request.destination === 'image') {
+          const fallbackIcon = await caches.match('/images/icon-192.svg');
+          if (fallbackIcon) {
+            return fallbackIcon;
+          }
+        }
+        // Return 503 response instead of unhandled rejection
+        return new Response('Asset unavailable offline', {
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: { 'Content-Type': 'text/plain' },
+        });
+      }
     })
   );
 });

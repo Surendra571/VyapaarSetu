@@ -46,7 +46,7 @@ class Settings(BaseSettings):
 
     # Gemini Configuration
     GEMINI_API_KEY: Optional[str] = Field(default=None)
-    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    GEMINI_MODEL: str = "gemini-1.5-flash"
     GEMINI_TIMEOUT_SECONDS: int = 20
 
     # Scheme Engine Stacking Policy
